@@ -66,16 +66,22 @@ def _parse_markdown_profile(text: str) -> dict:
 
     profile_data: dict = {}
 
-    # Title
+    # Title — strip markdown bold and surrounding whitespace/rules
     for key in ("professional title", "title"):
         if key in sections:
-            profile_data["title"] = sections[key]
+            title = sections[key].strip()
+            title = re.sub(r"^---+\s*", "", title).strip()
+            title = re.sub(r"\s*---+$", "", title).strip()
+            title = title.strip("*")  # Remove bold markers
+            profile_data["title"] = title
             break
 
-    # Overview
+    # Overview — strip trailing horizontal rules
     for key in ("professional overview", "overview"):
         if key in sections:
-            profile_data["overview"] = sections[key]
+            overview = sections[key].strip()
+            overview = re.sub(r"\s*---+\s*$", "", overview).strip()
+            profile_data["overview"] = overview
             break
 
     # Skills — expect bullet list or comma-separated
@@ -85,6 +91,9 @@ def _parse_markdown_profile(text: str) -> dict:
             skills: list[str] = []
             for sline in raw.splitlines():
                 sline = sline.strip()
+                # Skip sub-headings (### Category Name) and horizontal rules
+                if re.match(r"^#{1,6}\s+", sline) or sline.startswith("---"):
+                    continue
                 # Strip leading bullet markers
                 sline = re.sub(r"^[-*]\s*", "", sline)
                 sline = sline.strip()
@@ -98,10 +107,16 @@ def _parse_markdown_profile(text: str) -> dict:
             profile_data["skills"] = skills
             break
 
-    # Hourly rate
+    # Hourly rate — extract the dollar range
     for key in ("hourly rate suggestion", "hourly rate"):
         if key in sections:
-            profile_data["hourly_rate"] = sections[key]
+            rate_text = sections[key].strip()
+            # Try to extract $XX-$XX/hr pattern
+            rate_match = re.search(r"\$[\d,]+\s*[-–]\s*\$[\d,]+/hr", rate_text)
+            if rate_match:
+                profile_data["hourly_rate"] = rate_match.group(0)
+            else:
+                profile_data["hourly_rate"] = re.sub(r"\s*---+\s*$", "", rate_text).strip()
             break
 
     # Portfolio
