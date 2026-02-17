@@ -69,10 +69,20 @@ def _score_color(score: int) -> str:
 
 
 def _search_via_rss(query: str, limit: int) -> list[JobPosting]:
-    """Fetch jobs from the Upwork RSS feed (unauthenticated fallback)."""
+    """Fetch jobs from the Upwork RSS feed (unauthenticated fallback).
+
+    NOTE: Upwork deprecated RSS feeds in August 2024. This will return an
+    empty list with a warning. Kept for potential future restoration.
+    """
     encoded_query = urllib.request.quote(query)
     url = RSS_URL.format(query=encoded_query)
     feed = feedparser.parse(url)
+    if feed.get("status", 0) in (410, 403, 404) or not feed.entries:
+        console.print(
+            "[yellow]Upwork RSS feeds were deprecated in August 2024.[/yellow]\n"
+            "You need to authenticate to search jobs: [bold]upwork config setup[/bold]"
+        )
+        return []
     jobs = []
     for entry in feed.entries[:limit]:
         job = JobPosting.from_rss(entry)

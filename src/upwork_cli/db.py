@@ -93,7 +93,7 @@ def upsert_job(job: dict[str, Any]) -> None:
                 job.get("id", ""),
                 job.get("title", ""),
                 job.get("description", ""),
-                json.dumps(job.get("skills", [])),
+                json.dumps(job.get("skills", [])) if isinstance(job.get("skills"), list) else job.get("skills", "[]"),
                 job.get("budget_amount"),
                 job.get("budget_currency"),
                 job.get("duration"),
