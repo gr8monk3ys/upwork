@@ -18,6 +18,7 @@ from upwork_cli.config import (
     SETTINGS_FILE,
     Profile,
     Settings,
+    _set_secret,
     ensure_config_dir,
     load_auth,
     load_profile,
@@ -168,7 +169,7 @@ def setup():
     # --- Upwork API credentials ---
     console.print("\n[bold cyan]Upwork API Credentials[/bold cyan]")
     settings.client_id = click.prompt("Client ID", default=settings.client_id or "")
-    settings.client_secret = click.prompt(
+    client_secret = click.prompt(
         "Client Secret", default=settings.client_secret or "", hide_input=True
     )
     settings.redirect_uri = click.prompt(
@@ -182,16 +183,19 @@ def setup():
         default=settings.anthropic_api_key or "",
         hide_input=True,
     )
-    settings.anthropic_api_key = anthropic_key
 
     discord_url = click.prompt(
         "Discord Webhook URL (for notifications)",
         default=settings.discord_webhook_url or "",
     )
-    settings.discord_webhook_url = discord_url
 
-    save_settings(settings)
-    console.print("\n[green]Settings saved.[/green]")
+    save_settings(
+        settings,
+        client_secret=client_secret,
+        anthropic_api_key=anthropic_key,
+        discord_webhook_url=discord_url,
+    )
+    console.print("\n[green]Settings saved (secrets stored in system keychain).[/green]")
 
     # --- OAuth2 flow ---
     console.print("\n[bold cyan]Upwork OAuth2 Authorization[/bold cyan]")
@@ -376,9 +380,13 @@ def reset():
             filepath.unlink()
             deleted.append(filepath.name)
 
+    # Clear secrets from keychain
+    for key in ("client_secret", "anthropic_api_key", "discord_webhook_url"):
+        _set_secret(key, "")
+
     if deleted:
         console.print(f"[green]Deleted: {', '.join(deleted)}[/green]")
     else:
         console.print("[yellow]No configuration files found to delete.[/yellow]")
 
-    console.print("[green]Configuration reset complete.[/green]")
+    console.print("[green]Configuration reset complete (keychain secrets cleared).[/green]")
