@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "upwork-cli"
+version = "0.1.0"
+description = "CLI toolkit for Upwork freelancer management"
+requires-python = ">=3.9"
+dependencies = [
+    "python-upwork-oauth2>=3.2.0",
+    "click>=8.1",
+    "rich>=13.0",
+    "anthropic>=0.40.0",
+    "pyyaml>=6.0",
+    "keyring>=25.0",
+    "feedparser>=6.0",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7.0", "pytest-mock>=3.10"]
+
+[project.scripts]
+upwork = "upwork_cli.cli:cli"
+
+[tool.setuptools.packages.find]
+where = ["src"]
