@@ -1,0 +1,197 @@
+"""Shared fixtures for the Upwork CLI test suite."""
+
+import json
+from pathlib import Path
+from unittest.mock import MagicMock
+
+import pytest
+from click.testing import CliRunner
+
+
+# ---------------------------------------------------------------------------
+# Filesystem isolation
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def isolated_config(tmp_path, monkeypatch):
+    """Redirect ALL config/DB paths to a temp directory.
+
+    This patches both the canonical definitions in ``upwork_cli.config`` AND
+    the locally-bound names re-imported in other modules (e.g. ``upwork_cli.db``
+    does ``from upwork_cli.config import DB_FILE``).
+    """
+    cfg = tmp_path / ".config" / "upwork-cli"
+    cfg.mkdir(parents=True)
+
+    paths = {
+        "CONFIG_DIR": cfg,
+        "AUTH_FILE": cfg / "auth.json",
+        "PROFILE_FILE": cfg / "profile.yaml",
+        "SETTINGS_FILE": cfg / "settings.yaml",
+        "DB_FILE": cfg / "upwork.db",
+    }
+
+    # Patch in config (canonical) and all known re-importers
+    for mod in ("upwork_cli.config", "upwork_cli.db", "upwork_cli.commands.config"):
+        for name, value in paths.items():
+            monkeypatch.setattr(f"{mod}.{name}", value, raising=False)
+
+    return cfg
+
+
+# ---------------------------------------------------------------------------
+# Keyring isolation
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def mock_keyring(monkeypatch):
+    """In-memory keyring -- never touch the real system keychain."""
+    store: dict[str, str] = {}
+
+    monkeypatch.setattr(
+        "keyring.get_password",
+        lambda svc, key: store.get(f"{svc}:{key}"),
+    )
+    monkeypatch.setattr(
+        "keyring.set_password",
+        lambda svc, key, val: store.__setitem__(f"{svc}:{key}", val),
+    )
+    monkeypatch.setattr(
+        "keyring.delete_password",
+        lambda svc, key: store.pop(f"{svc}:{key}", None),
+    )
+    return store
+
+
+# ---------------------------------------------------------------------------
+# Click CLI runner
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def cli_runner():
+    """Pre-configured Click CliRunner with isolated environment."""
+    return CliRunner()
+
+
+# ---------------------------------------------------------------------------
+# Sample data factories
+# ---------------------------------------------------------------------------
+
+
+def _make_job_dict(**overrides) -> dict:
+    """Return a minimal valid job dict for ``upsert_job``."""
+    base = {
+        "id": "~01abc123",
+        "title": "Python Developer Needed",
+        "description": "Build a REST API using FastAPI.",
+        "skills": ["Python", "FastAPI", "PostgreSQL"],
+        "budget_amount": 5000.0,
+        "budget_currency": "USD",
+        "duration": "1 to 3 months",
+        "engagement": "30+ hrs/week",
+        "client_country": "United States",
+        "client_total_spent": 150000.0,
+        "client_total_hires": 42,
+        "client_feedback": 4.9,
+        "created_at": "2025-01-15T10:00:00Z",
+    }
+    base.update(overrides)
+    return base
+
+
+def _make_graphql_node(**overrides) -> dict:
+    """Return a minimal GraphQL job node for ``JobPosting.from_graphql``."""
+    base = {
+        "id": "~01abc123",
+        "title": "Python Developer Needed",
+        "description": "Build a REST API.",
+        "skills": [{"prettyName": "Python"}, {"prettyName": "FastAPI"}],
+        "amount": {"amount": "5000", "currencyCode": "USD"},
+        "duration": "1 to 3 months",
+        "engagement": "30+ hrs/week",
+        "createdDateTime": "2025-01-15T10:00:00Z",
+        "client": {
+            "location": {"country": "United States"},
+            "totalSpent": {"amount": "150000"},
+            "totalHires": 42,
+            "totalFeedback": 4.9,
+            "verificationStatus": "VERIFIED",
+        },
+        "occupations": {
+            "category": {"prefLabel": "Web Development"},
+            "subcategory": {"prefLabel": "Backend Development"},
+        },
+    }
+    base.update(overrides)
+    return base
+
+
+def _make_rest_job(**overrides) -> dict:
+    """Return a minimal REST API job dict for ``JobPosting.from_rest``."""
+    base = {
+        "id": "~01rest456",
+        "title": "Frontend React Dev",
+        "description": "Build a dashboard.",
+        "skills": ["React", "TypeScript"],
+        "budget": {"amount": "3000", "currencyCode": "USD"},
+        "duration": "Less than 1 month",
+        "engagement": "Less than 30 hrs/week",
+        "date_created": "2025-02-01T12:00:00Z",
+        "client": {
+            "country": "Canada",
+            "total_charge": 50000.0,
+            "total_hires": 10,
+            "feedback": 4.5,
+        },
+    }
+    base.update(overrides)
+    return base
+
+
+def _make_rss_entry(**overrides) -> dict:
+    """Return a minimal RSS entry for ``JobPosting.from_rss``."""
+    base = {
+        "title": "Data Analyst Needed",
+        "link": "https://www.upwork.com/jobs/~01rss789",
+        "summary": "Analyze data.<br><b>Budget</b>: $2,500<br>",
+        "published": "2025-03-01T08:00:00Z",
+    }
+    base.update(overrides)
+    return base
+
+
+@pytest.fixture
+def sample_job():
+    return _make_job_dict()
+
+
+@pytest.fixture
+def sample_graphql_node():
+    return _make_graphql_node()
+
+
+@pytest.fixture
+def sample_rest_job():
+    return _make_rest_job()
+
+
+@pytest.fixture
+def sample_rss_entry():
+    return _make_rss_entry()
+
+
+# ---------------------------------------------------------------------------
+# Anthropic mock factory
+# ---------------------------------------------------------------------------
+
+
+def mock_anthropic_response(text: str) -> MagicMock:
+    """Build a mock Anthropic ``messages.create`` return value."""
+    content_block = MagicMock()
+    content_block.text = text
+    response = MagicMock()
+    response.content = [content_block]
+    return response
