@@ -43,7 +43,8 @@ def _parse_markdown_profile(text: str) -> dict:
         ## Professional Overview
         ## Skills to Add
         ## Hourly Rate Suggestion
-        ## Portfolio
+        ## Portfolio / ## Portfolio Entries
+        ## Employment History / ## Experience (for experience_years)
     """
     sections: dict[str, str] = {}
     current_heading: str | None = None
@@ -120,7 +121,7 @@ def _parse_markdown_profile(text: str) -> dict:
             break
 
     # Portfolio
-    for key in ("portfolio",):
+    for key in ("portfolio entries", "portfolio"):
         if key in sections:
             raw = sections[key]
             portfolio: list[dict[str, str]] = []
@@ -152,6 +153,30 @@ def _parse_markdown_profile(text: str) -> dict:
             if portfolio:
                 profile_data["portfolio"] = portfolio
             break
+
+    # Experience years — extract from overview ("X+ years") or employment history date ranges
+    if "experience_years" not in profile_data:
+        overview_text = profile_data.get("overview", "")
+        years_match = re.search(r"(\d+)\+?\s*years?\b", overview_text, re.IGNORECASE)
+        if years_match:
+            profile_data["experience_years"] = int(years_match.group(1))
+        else:
+            # Fall back to employment history / experience sections
+            for key in ("employment history", "experience"):
+                if key in sections:
+                    # Look for year ranges like "2017 - Present" or "2019 - 2022"
+                    year_ranges = re.findall(
+                        r"(\d{4})\s*[-–]\s*(Present|\d{4})", sections[key]
+                    )
+                    if year_ranges:
+                        current_year = datetime.now().year
+                        total = 0
+                        for start, end in year_ranges:
+                            end_year = current_year if end == "Present" else int(end)
+                            total = max(total, end_year - int(start))
+                        if total > 0:
+                            profile_data["experience_years"] = total
+                    break
 
     return profile_data
 
@@ -346,6 +371,7 @@ def profile(file_path: str | None):
                 skills=data.get("skills", []),
                 portfolio=data.get("portfolio", []),
                 hourly_rate=data.get("hourly_rate", ""),
+                experience_years=data.get("experience_years", 0),
             )
         elif ext in (".yaml", ".yml"):
             console.print(f"Loading YAML profile from [bold]{path}[/bold]...")
@@ -405,3 +431,111 @@ def reset():
         console.print("[yellow]No configuration files found to delete.[/yellow]")
 
     console.print("[green]Configuration reset complete (keychain secrets cleared).[/green]")
+
+
+# ---------------------------------------------------------------------------
+# audit
+# ---------------------------------------------------------------------------
+
+
+def _build_audit_summary(profile: Profile) -> str:
+    """Build a detailed audit input string from a Profile."""
+    parts = []
+    if profile.title:
+        parts.append(f"Title ({len(profile.title)} chars): {profile.title}")
+    else:
+        parts.append("Title: NOT SET")
+
+    if profile.overview:
+        parts.append(f"Overview ({len(profile.overview)} chars): {profile.overview}")
+    else:
+        parts.append("Overview: NOT SET")
+
+    if profile.skills:
+        parts.append(f"Skills ({len(profile.skills)} listed): {', '.join(profile.skills)}")
+    else:
+        parts.append("Skills: NONE")
+
+    if profile.portfolio:
+        parts.append(f"Portfolio ({len(profile.portfolio)} items):")
+        for p in profile.portfolio:
+            name = p.get("name", "Untitled")
+            desc = p.get("description", "")
+            parts.append(f"  - {name}: {desc[:100]}")
+    else:
+        parts.append("Portfolio: NONE")
+
+    if profile.hourly_rate:
+        parts.append(f"Hourly Rate: {profile.hourly_rate}")
+    else:
+        parts.append("Hourly Rate: NOT SET")
+
+    parts.append(f"Experience Years: {profile.experience_years or 'NOT SET'}")
+    return "\n".join(parts)
+
+
+@config.command()
+def audit():
+    """AI-powered profile completeness audit (scored 0-100)."""
+    settings = load_settings()
+    profile = load_profile()
+
+    if not settings.anthropic_api_key:
+        console.print(
+            "[red]Anthropic API key not configured.[/red] "
+            "Run [bold]upwork config setup[/bold] first."
+        )
+        raise SystemExit(1)
+
+    if not profile.title and not profile.overview:
+        console.print(
+            "[yellow]Profile is empty.[/yellow] "
+            "Run [bold]upwork config profile --file <path>[/bold] to import your profile first."
+        )
+        raise SystemExit(1)
+
+    profile_text = _build_audit_summary(profile)
+
+    from upwork_cli.ai.auditor import audit_profile
+
+    with console.status("[bold green]Auditing your profile..."):
+        result = audit_profile(profile_text, settings.anthropic_api_key)
+
+    total = result.get("total_score", 0)
+
+    # Color coding
+    if total >= 80:
+        score_style = "bold green"
+    elif total >= 60:
+        score_style = "bold yellow"
+    else:
+        score_style = "bold red"
+
+    console.print(f"\n[{score_style}]Profile Score: {total}/100[/{score_style}]\n")
+
+    # Breakdown table
+    table = Table(title="Score Breakdown", show_lines=True)
+    table.add_column("Area", style="bold cyan")
+    table.add_column("Score", justify="center", width=8)
+    table.add_column("Feedback", max_width=60)
+
+    for item in result.get("breakdown", []):
+        area = item.get("area", "?")
+        score = item.get("score", 0)
+        feedback = item.get("feedback", "")
+        if score >= 16:
+            color = "green"
+        elif score >= 12:
+            color = "yellow"
+        else:
+            color = "red"
+        table.add_row(area, f"[{color}]{score}/20[/{color}]", feedback)
+
+    console.print(table)
+
+    # Top improvements
+    improvements = result.get("top_3_improvements", [])
+    if improvements:
+        console.print("\n[bold]Top Improvements:[/bold]")
+        for i, tip in enumerate(improvements, 1):
+            console.print(f"  {i}. {tip}")
