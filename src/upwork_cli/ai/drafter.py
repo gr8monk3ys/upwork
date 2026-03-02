@@ -37,9 +37,9 @@ TONE_GUIDANCE = {
 }
 
 
-def _build_system_prompt(tone: str, length: str) -> str:
+def _build_system_prompt(tone: str, length: str, style_guide: str = "") -> str:
     """Build the system prompt for proposal generation."""
-    return (
+    prompt = (
         "You are an expert Upwork freelancer who writes winning proposals. "
         "You craft each proposal specifically for the job at hand.\n\n"
         "Rules:\n"
@@ -58,6 +58,9 @@ def _build_system_prompt(tone: str, length: str) -> str:
         f"Tone: {TONE_GUIDANCE[tone]}\n"
         f"Length: Keep the proposal to {LENGTH_GUIDANCE[length]}."
     )
+    if style_guide:
+        prompt += f"\n\nFollow these patterns from past winning proposals:\n{style_guide}"
+    return prompt
 
 
 def draft_proposal(
@@ -66,6 +69,7 @@ def draft_proposal(
     api_key: str,
     tone: str = "professional",
     length: str = "medium",
+    style_guide: str = "",
 ) -> str:
     """Generate a tailored Upwork proposal for a specific job.
 
@@ -100,7 +104,7 @@ def draft_proposal(
         response = client.messages.create(
             model=MODEL,
             max_tokens=1024,
-            system=_build_system_prompt(tone, length),
+            system=_build_system_prompt(tone, length, style_guide),
             messages=[{"role": "user", "content": user_message}],
         )
         return response.content[0].text

@@ -13,3 +13,14 @@ venv/
 uv.lock
 .env
 *.db
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Coverage
+htmlcov/
+.coverage
