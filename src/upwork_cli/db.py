@@ -53,7 +53,39 @@ CREATE TABLE IF NOT EXISTS watch_seen (
     search_term TEXT,
     seen_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS pipeline (
+    job_id TEXT PRIMARY KEY REFERENCES jobs(id),
+    stage TEXT NOT NULL DEFAULT 'found',
+    moved_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    notes TEXT DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS pipeline_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id TEXT REFERENCES jobs(id),
+    from_stage TEXT,
+    to_stage TEXT NOT NULL,
+    moved_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
 """
+
+PIPELINE_STAGES = ("found", "applied", "interviewing", "won", "lost")
+
+MIGRATIONS = [
+    "ALTER TABLE proposals ADD COLUMN outcome TEXT DEFAULT NULL",
+    "ALTER TABLE jobs ADD COLUMN category TEXT DEFAULT ''",
+    "ALTER TABLE jobs ADD COLUMN subcategory TEXT DEFAULT ''",
+]
+
+
+def _run_migrations(conn: sqlite3.Connection) -> None:
+    """Apply lightweight schema migrations (idempotent)."""
+    for sql in MIGRATIONS:
+        try:
+            conn.execute(sql)
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
 
 def get_db_path() -> str:
@@ -79,6 +111,7 @@ def get_connection() -> Generator[sqlite3.Connection, None, None]:
 def init_db() -> None:
     with get_connection() as conn:
         conn.executescript(SCHEMA)
+        _run_migrations(conn)
 
 
 def upsert_job(job: dict[str, Any]) -> None:
@@ -87,8 +120,8 @@ def upsert_job(job: dict[str, Any]) -> None:
             """INSERT OR REPLACE INTO jobs
             (id, title, description, skills, budget_amount, budget_currency,
              duration, engagement, client_country, client_total_spent,
-             client_total_hires, client_feedback, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+             client_total_hires, client_feedback, created_at, category, subcategory)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 job.get("id", ""),
                 job.get("title", ""),
@@ -103,6 +136,8 @@ def upsert_job(job: dict[str, Any]) -> None:
                 job.get("client_total_hires"),
                 job.get("client_feedback"),
                 job.get("created_at"),
+                job.get("category", ""),
+                job.get("subcategory", ""),
             ),
         )
 
@@ -179,5 +214,143 @@ def get_jobs_with_scores(limit: int = 50) -> list[dict[str, Any]]:
             ORDER BY s.score DESC NULLS LAST, j.fetched_at DESC
             LIMIT ?""",
             (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Pipeline functions
+# ---------------------------------------------------------------------------
+
+
+def set_pipeline_stage(job_id: str, stage: str, notes: str = "") -> None:
+    """Move a job to a pipeline stage (upsert). Records transition history."""
+    with get_connection() as conn:
+        # Get current stage (if any)
+        row = conn.execute(
+            "SELECT stage FROM pipeline WHERE job_id = ?", (job_id,)
+        ).fetchone()
+        from_stage = row["stage"] if row else None
+
+        # Upsert pipeline row
+        conn.execute(
+            """INSERT INTO pipeline (job_id, stage, notes, moved_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(job_id) DO UPDATE SET
+                stage = excluded.stage,
+                notes = excluded.notes,
+                moved_at = excluded.moved_at""",
+            (job_id, stage, notes),
+        )
+
+        # Record history
+        conn.execute(
+            """INSERT INTO pipeline_history (job_id, from_stage, to_stage)
+            VALUES (?, ?, ?)""",
+            (job_id, from_stage, stage),
+        )
+
+
+def set_pipeline_stage_if_not_exists(job_id: str, stage: str) -> None:
+    """Set pipeline stage only if the job is not already in the pipeline."""
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT OR IGNORE INTO pipeline (job_id, stage)
+            VALUES (?, ?)""",
+            (job_id, stage),
+        )
+
+
+def get_pipeline_jobs(stage: Optional[str] = None) -> list[dict[str, Any]]:
+    """Get jobs in the pipeline, optionally filtered by stage."""
+    with get_connection() as conn:
+        if stage:
+            rows = conn.execute(
+                """SELECT p.*, j.title, j.budget_amount, j.budget_currency,
+                          j.client_country, j.category, s.score
+                FROM pipeline p
+                LEFT JOIN jobs j ON p.job_id = j.id
+                LEFT JOIN scores s ON p.job_id = s.job_id
+                WHERE p.stage = ?
+                ORDER BY p.moved_at DESC""",
+                (stage,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT p.*, j.title, j.budget_amount, j.budget_currency,
+                          j.client_country, j.category, s.score
+                FROM pipeline p
+                LEFT JOIN jobs j ON p.job_id = j.id
+                LEFT JOIN scores s ON p.job_id = s.job_id
+                ORDER BY p.moved_at DESC""",
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_pipeline_stats() -> dict[str, Any]:
+    """Get pipeline statistics: stage counts, win rate, top categories."""
+    with get_connection() as conn:
+        # Stage counts
+        rows = conn.execute(
+            "SELECT stage, COUNT(*) as cnt FROM pipeline GROUP BY stage"
+        ).fetchall()
+        stage_counts = {r["stage"]: r["cnt"] for r in rows}
+
+        # Win rate
+        won = stage_counts.get("won", 0)
+        applied = stage_counts.get("applied", 0) + stage_counts.get("interviewing", 0) + won + stage_counts.get("lost", 0)
+        win_rate = (won / applied * 100) if applied > 0 else 0.0
+
+        # Top categories
+        cat_rows = conn.execute(
+            """SELECT j.category, COUNT(*) as cnt
+            FROM pipeline p JOIN jobs j ON p.job_id = j.id
+            WHERE j.category != ''
+            GROUP BY j.category ORDER BY cnt DESC LIMIT 5"""
+        ).fetchall()
+        top_categories = [{"category": r["category"], "count": r["cnt"]} for r in cat_rows]
+
+        return {
+            "stage_counts": stage_counts,
+            "total": sum(stage_counts.values()),
+            "win_rate": round(win_rate, 1),
+            "top_categories": top_categories,
+        }
+
+
+def get_pipeline_history(job_id: Optional[str] = None) -> list[dict[str, Any]]:
+    """Get pipeline transition history, optionally for a specific job."""
+    with get_connection() as conn:
+        if job_id:
+            rows = conn.execute(
+                """SELECT h.*, j.title FROM pipeline_history h
+                LEFT JOIN jobs j ON h.job_id = j.id
+                WHERE h.job_id = ?
+                ORDER BY h.moved_at DESC""",
+                (job_id,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT h.*, j.title FROM pipeline_history h
+                LEFT JOIN jobs j ON h.job_id = j.id
+                ORDER BY h.moved_at DESC LIMIT 50""",
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def mark_proposal_outcome(proposal_id: int, outcome: str) -> None:
+    """Mark a proposal's outcome (won/lost/no_response)."""
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE proposals SET outcome = ? WHERE id = ?",
+            (outcome, proposal_id),
+        )
+
+
+def get_winning_proposals() -> list[dict[str, Any]]:
+    """Get all proposals marked as 'won'."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM proposals WHERE outcome = 'won' ORDER BY created_at DESC"
         ).fetchall()
         return [dict(r) for r in rows]
