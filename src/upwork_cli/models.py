@@ -108,6 +108,8 @@ class JobPosting:
             "client_total_hires": self.client_total_hires,
             "client_feedback": self.client_feedback,
             "created_at": self.created_at,
+            "category": self.category,
+            "subcategory": self.subcategory,
         }
 
     def summary_for_ai(self) -> str:

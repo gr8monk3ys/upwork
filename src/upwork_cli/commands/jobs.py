@@ -21,6 +21,7 @@ from upwork_cli.db import (
     mark_seen,
     is_seen,
     get_jobs_with_scores,
+    set_pipeline_stage_if_not_exists,
 )
 from upwork_cli.models import JobPosting
 from upwork_cli.ai.scorer import score_jobs_batch
@@ -201,9 +202,10 @@ def search(ctx, query, budget_min, budget_max, job_type, posted, limit):
         console.print("[yellow]No jobs found matching your query.[/yellow]")
         return
 
-    # Cache results in the database
+    # Cache results in the database and add to pipeline
     for job in results:
         upsert_job(job.to_db_dict())
+        set_pipeline_stage_if_not_exists(job.id, "found")
 
     _display_jobs_table(results, title=f"Jobs: {query}")
     console.print(f"\n[dim]{len(results)} job(s) found and cached.[/dim]")

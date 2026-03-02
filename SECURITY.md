@@ -9,6 +9,15 @@ Security updates are provided for the latest default branch.
 Please report vulnerabilities privately via GitHub Security Advisories or by contacting the maintainer directly.
 Do not open public issues for undisclosed vulnerabilities.
 
-We will acknowledge receipt and provide next steps as quickly as possible.
-
 For private disclosure, use GitHub Security Advisories: [https://github.com/gr8monk3ys/upwork/security/advisories](https://github.com/gr8monk3ys/upwork/security/advisories).
+
+Include:
+- A clear description of the issue
+- Reproduction steps
+- Impact assessment
+- Suggested remediation (if known)
+
+## Response Expectations
+- Initial acknowledgement: within 72 hours
+- Triage decision: within 7 days
+- Fix timeline: depends on severity and complexity

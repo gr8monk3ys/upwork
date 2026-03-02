@@ -28,6 +28,7 @@ def register_commands():
     from upwork_cli.commands.propose import propose
     from upwork_cli.commands.earnings import earnings, contracts
     from upwork_cli.commands.messages import messages
+    from upwork_cli.commands.pipeline import pipeline
 
     cli.add_command(config)
     cli.add_command(jobs)
@@ -35,6 +36,7 @@ def register_commands():
     cli.add_command(earnings)
     cli.add_command(contracts)
     cli.add_command(messages)
+    cli.add_command(pipeline)
 
 
 register_commands()

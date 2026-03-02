@@ -12,12 +12,16 @@ from rich.table import Table
 
 from upwork_cli.client import UpworkClient
 from upwork_cli.config import load_settings, load_profile
+from upwork_cli.config import CONFIG_DIR
 from upwork_cli.db import (
     init_db,
     get_connection,
     save_proposal,
     get_proposals,
     get_jobs_with_scores,
+    set_pipeline_stage,
+    mark_proposal_outcome,
+    get_winning_proposals,
 )
 from upwork_cli.ai.drafter import draft_proposal, refine_proposal
 
@@ -118,7 +122,13 @@ def propose():
     default=False,
     help="Open the generated proposal in $EDITOR for manual tweaking.",
 )
-def generate(job_id: str, tone: str, length: str, open_editor: bool):
+@click.option(
+    "--research/--no-research",
+    default=True,
+    show_default=True,
+    help="Run AI client research before drafting.",
+)
+def generate(job_id: str, tone: str, length: str, open_editor: bool, research: bool):
     """Generate a tailored cover letter for JOB_ID."""
 
     settings = load_settings()
@@ -181,7 +191,40 @@ def generate(job_id: str, tone: str, length: str, open_editor: bool):
 
     profile_summary = profile.summary() if profile.title else ""
 
-    # 2b. Draft proposal ---------------------------------------------------
+    # 2a. Client research (optional) ---------------------------------------
+    if research:
+        from upwork_cli.ai.researcher import research_client
+
+        with console.status("[bold green]Researching client..."):
+            client_research = research_client(
+                job_summary=job_summary,
+                total_spent=job.get("client_total_spent"),
+                total_hires=job.get("client_total_hires"),
+                feedback=job.get("client_feedback"),
+                country=job.get("client_country", ""),
+                verified=False,
+                api_key=settings.anthropic_api_key,
+            )
+
+        if client_research.get("brief"):
+            console.print(Panel(
+                f"[bold]Risk:[/bold] {client_research.get('risk_level', '?')}\n"
+                f"[bold]Tier:[/bold] {client_research.get('spending_tier', '?')}\n\n"
+                f"{client_research.get('brief', '')}",
+                title="Client Research",
+                border_style="cyan",
+            ))
+            tips = client_research.get("proposal_tips", "")
+            if tips:
+                job_summary += f"\n\nClient Research Tips: {tips}"
+
+    # 2b. Load cached style guide ------------------------------------------
+    style_guide = ""
+    style_guide_path = CONFIG_DIR / "style_guide.txt"
+    if style_guide_path.exists():
+        style_guide = style_guide_path.read_text(encoding="utf-8").strip()
+
+    # 2c. Draft proposal ---------------------------------------------------
     with console.status("[bold green]Generating proposal..."):
         content = draft_proposal(
             job_summary=job_summary,
@@ -189,19 +232,21 @@ def generate(job_id: str, tone: str, length: str, open_editor: bool):
             api_key=settings.anthropic_api_key,
             tone=tone,
             length=length,
+            style_guide=style_guide,
         )
 
     # 3. Optional editor pass ----------------------------------------------
     if open_editor:
         content = _open_in_editor(content)
 
-    # 4. Save to DB --------------------------------------------------------
+    # 4. Save to DB and update pipeline ------------------------------------
     proposal_id = save_proposal(
         job_id=job_id,
         job_title=job_title,
         content=content,
         tone=tone,
     )
+    set_pipeline_stage(job_id, "applied")
 
     # 5. Display -----------------------------------------------------------
     console.print()
@@ -383,3 +428,131 @@ def show(proposal_id: int, copy_to_clip: bool):
                 "\n[red]Failed to copy to clipboard.[/red] "
                 "[dim](pbcopy not available — macOS only)[/dim]"
             )
+
+
+# ---------------------------------------------------------------------------
+# propose prep
+# ---------------------------------------------------------------------------
+
+
+@propose.command()
+@click.argument("job_id")
+def prep(job_id: str):
+    """Generate interview preparation notes for JOB_ID."""
+    settings = load_settings()
+    profile = load_profile()
+
+    if not settings.anthropic_api_key:
+        console.print("[red]Anthropic API key not configured.[/red]")
+        raise SystemExit(1)
+
+    job = _get_job_from_db(job_id)
+    if job is None:
+        console.print(f"[red]Job {job_id} not found in local cache.[/red]")
+        raise SystemExit(1)
+
+    # Build job summary
+    job_parts = [f"Title: {job.get('title', '')}"]
+    if job.get("description"):
+        job_parts.append(f"Description: {job['description'][:1000]}")
+    if job.get("skills"):
+        skills = job["skills"]
+        if isinstance(skills, str):
+            job_parts.append(f"Skills: {skills}")
+        else:
+            job_parts.append(f"Skills: {', '.join(skills)}")
+    job_summary = "\n".join(job_parts)
+    profile_summary = profile.summary() if profile.title else ""
+
+    from upwork_cli.ai.interview_prep import generate_interview_prep
+
+    with console.status("[bold green]Generating interview prep..."):
+        try:
+            prep_text = generate_interview_prep(
+                job_summary=job_summary,
+                profile_summary=profile_summary,
+                api_key=settings.anthropic_api_key,
+            )
+        except RuntimeError as exc:
+            console.print(f"[red]{exc}[/red]")
+            raise SystemExit(1)
+
+    console.print()
+    console.print(Panel(
+        Markdown(prep_text),
+        title=f"Interview Prep — {job.get('title', 'Untitled')}",
+        border_style="green",
+    ))
+
+
+# ---------------------------------------------------------------------------
+# propose mark
+# ---------------------------------------------------------------------------
+
+
+@propose.command()
+@click.argument("proposal_id", type=int)
+@click.argument("outcome", type=click.Choice(["won", "lost", "no_response"]))
+def mark(proposal_id: int, outcome: str):
+    """Mark a proposal's outcome (won/lost/no_response)."""
+    proposal = _get_proposal_by_id(proposal_id)
+    if proposal is None:
+        console.print(f"[red]Proposal #{proposal_id} not found.[/red]")
+        raise SystemExit(1)
+
+    mark_proposal_outcome(proposal_id, outcome)
+
+    # If won, also move pipeline stage
+    if outcome == "won" and proposal.get("job_id"):
+        set_pipeline_stage(proposal["job_id"], "won")
+    elif outcome == "lost" and proposal.get("job_id"):
+        set_pipeline_stage(proposal["job_id"], "lost")
+
+    colors = {"won": "green", "lost": "red", "no_response": "yellow"}
+    color = colors.get(outcome, "white")
+    console.print(f"Proposal #{proposal_id} marked as [{color}]{outcome}[/{color}].")
+
+
+# ---------------------------------------------------------------------------
+# propose learn
+# ---------------------------------------------------------------------------
+
+
+@propose.command()
+def learn():
+    """Extract winning patterns from past proposals into a style guide."""
+    settings = load_settings()
+
+    if not settings.anthropic_api_key:
+        console.print("[red]Anthropic API key not configured.[/red]")
+        raise SystemExit(1)
+
+    winners = get_winning_proposals()
+    if not winners:
+        console.print(
+            "[yellow]No winning proposals found.[/yellow] "
+            "Mark proposals with [bold]propose mark <id> won[/bold] first."
+        )
+        return
+
+    from upwork_cli.ai.learner import extract_winning_patterns
+
+    with console.status("[bold green]Analyzing winning proposals..."):
+        try:
+            style_guide = extract_winning_patterns(winners, settings.anthropic_api_key)
+        except RuntimeError as exc:
+            console.print(f"[red]{exc}[/red]")
+            raise SystemExit(1)
+
+    # Cache to disk
+    style_guide_path = CONFIG_DIR / "style_guide.txt"
+    style_guide_path.write_text(style_guide, encoding="utf-8")
+
+    console.print()
+    console.print(Panel(
+        Markdown(style_guide),
+        title="Winning Proposal Style Guide",
+        border_style="green",
+    ))
+    console.print(f"\n[dim]Style guide saved to {style_guide_path}[/dim]")
+    console.print("[dim]Future proposals will automatically use this guide.[/dim]")
