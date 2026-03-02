@@ -3,11 +3,9 @@
 import click
 import time
 import json
-import urllib.request
 
 from rich.console import Console
 from rich.table import Table
-import feedparser
 
 from upwork_cli.client import UpworkClient
 from upwork_cli.config import load_settings, load_profile
@@ -27,8 +25,6 @@ from upwork_cli.models import JobPosting
 from upwork_cli.ai.scorer import score_jobs_batch
 
 console = Console()
-
-RSS_URL = "https://www.upwork.com/ab/feed/jobs/rss?q={query}&sort=recency"
 
 
 def _truncate(text: str, length: int) -> str:
@@ -69,28 +65,6 @@ def _score_color(score: int) -> str:
         return "red"
 
 
-def _search_via_rss(query: str, limit: int) -> list[JobPosting]:
-    """Fetch jobs from the Upwork RSS feed (unauthenticated fallback).
-
-    NOTE: Upwork deprecated RSS feeds in August 2024. This will return an
-    empty list with a warning. Kept for potential future restoration.
-    """
-    encoded_query = urllib.request.quote(query)
-    url = RSS_URL.format(query=encoded_query)
-    feed = feedparser.parse(url)
-    if feed.get("status", 0) in (410, 403, 404) or not feed.entries:
-        console.print(
-            "[yellow]Upwork RSS feeds were deprecated in August 2024.[/yellow]\n"
-            "You need to authenticate to search jobs: [bold]upwork config setup[/bold]"
-        )
-        return []
-    jobs = []
-    for entry in feed.entries[:limit]:
-        job = JobPosting.from_rss(entry)
-        jobs.append(job)
-    return jobs
-
-
 def _search_via_api(client: UpworkClient, query: str, limit: int, **filters) -> list[JobPosting]:
     """Fetch jobs from the Upwork API (authenticated)."""
     try:
@@ -104,8 +78,8 @@ def _search_via_api(client: UpworkClient, query: str, limit: int, **filters) -> 
             jobs.append(job)
         return jobs
     except Exception as exc:
-        console.print(f"[yellow]API search failed ({exc}), falling back to RSS feed.[/yellow]")
-        return _search_via_rss(query, limit)
+        console.print(f"[red]API search failed: {exc}[/red]")
+        return []
 
 
 def _filter_jobs(
@@ -190,11 +164,13 @@ def search(ctx, query, budget_min, budget_max, job_type, posted, limit):
 
     console.print(f"[bold]Searching for:[/bold] {query}")
 
-    if client.is_authenticated:
-        results = _search_via_api(client, query, limit)
-    else:
-        console.print("[dim]Not authenticated -- using RSS feed.[/dim]")
-        results = _search_via_rss(query, limit)
+    if not client.is_authenticated:
+        console.print(
+            "[red]Not authenticated. Run 'upwork config setup' first.[/red]"
+        )
+        return
+
+    results = _search_via_api(client, query, limit)
 
     results = _filter_jobs(results, budget_min, budget_max, job_type, posted)
 
@@ -329,6 +305,12 @@ def watch(ctx, query, interval, min_score, notify):
     profile_summary = profile.summary() if has_scoring else ""
     client = UpworkClient(settings=settings)
 
+    if not client.is_authenticated:
+        console.print(
+            "[red]Not authenticated. Run 'upwork config setup' first.[/red]"
+        )
+        return
+
     console.print(f"[bold]Watching for:[/bold] {query}")
     console.print(f"[dim]Interval: {interval}m | Min score: {min_score} | Notify: {notify}[/dim]")
     console.print("[dim]Press Ctrl+C to stop.[/dim]\n")
@@ -336,10 +318,7 @@ def watch(ctx, query, interval, min_score, notify):
     try:
         while True:
             # Fetch latest results
-            if client.is_authenticated:
-                results = _search_via_api(client, query, limit=20)
-            else:
-                results = _search_via_rss(query, limit=20)
+            results = _search_via_api(client, query, limit=20)
 
             # Deduplicate against previously seen jobs
             new_jobs = []

@@ -1,15 +1,13 @@
 """Score Upwork job postings against a freelancer profile using Claude."""
 
 import json
-import re
 
 from anthropic import Anthropic
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
+from upwork_cli.ai.utils import DEFAULT_MODEL, strip_json_fences
 from upwork_cli.config import load_profile, load_settings
-
-MODEL = "claude-sonnet-4-5-20250929"
 
 SCORING_PROMPT = """\
 You are an expert Upwork freelancer advisor. Score how well this job posting \
@@ -56,7 +54,7 @@ def score_job(job_summary: str, profile_summary: str, api_key: str) -> tuple[int
     try:
         client = Anthropic(api_key=api_key)
         message = client.messages.create(
-            model=MODEL,
+            model=DEFAULT_MODEL,
             max_tokens=256,
             messages=[
                 {
@@ -69,12 +67,7 @@ def score_job(job_summary: str, profile_summary: str, api_key: str) -> tuple[int
             ],
         )
 
-        raw = message.content[0].text.strip()
-        # Strip markdown code fencing if the model wraps the response
-        if raw.startswith("```"):
-            raw = re.sub(r"^```(?:json)?\s*", "", raw)
-            raw = re.sub(r"\s*```$", "", raw)
-
+        raw = strip_json_fences(message.content[0].text.strip())
         result = json.loads(raw)
         score = max(1, min(10, int(result["score"])))
         reasoning = str(result["reasoning"])

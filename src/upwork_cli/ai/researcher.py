@@ -1,12 +1,11 @@
 """AI-powered client research for Upwork jobs."""
 
 import json
-import re
 from typing import Any
 
 from anthropic import Anthropic
 
-MODEL = "claude-sonnet-4-5-20250929"
+from upwork_cli.ai.utils import DEFAULT_MODEL, strip_json_fences
 
 RESEARCH_PROMPT = """\
 You are an expert Upwork freelancer advisor. Analyze this client and provide \
@@ -65,7 +64,7 @@ def research_client(
     try:
         client = Anthropic(api_key=api_key)
         message = client.messages.create(
-            model=MODEL,
+            model=DEFAULT_MODEL,
             max_tokens=512,
             messages=[{
                 "role": "user",
@@ -76,11 +75,7 @@ def research_client(
             }],
         )
 
-        raw = message.content[0].text.strip()
-        if raw.startswith("```"):
-            raw = re.sub(r"^```(?:json)?\s*", "", raw)
-            raw = re.sub(r"\s*```$", "", raw)
-
+        raw = strip_json_fences(message.content[0].text.strip())
         return json.loads(raw)
 
     except Exception:

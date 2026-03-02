@@ -14,7 +14,7 @@ console = Console()
 
 AUTH_ERROR_MESSAGE = (
     "Not authenticated. Run [bold]upwork config setup[/bold] to configure "
-    "your API credentials, then [bold]upwork auth login[/bold] to authenticate."
+    "your API credentials."
 )
 
 

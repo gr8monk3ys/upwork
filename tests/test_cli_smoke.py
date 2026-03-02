@@ -77,3 +77,59 @@ class TestProposeCommands:
         result = runner.invoke(cli, ["propose", "generate", "~01abc"])
         assert result.exit_code != 0
         assert "API key" in result.output
+
+    def test_refine_no_api_key(self, runner, isolated_config):
+        init_db()
+        result = runner.invoke(cli, ["propose", "refine"])
+        assert result.exit_code != 0
+        assert "API key" in result.output
+
+    def test_mark_not_found(self, runner, isolated_config):
+        init_db()
+        result = runner.invoke(cli, ["propose", "mark", "999", "won"])
+        assert result.exit_code != 0
+        assert "not found" in result.output
+
+    def test_mark_lost_not_found(self, runner, isolated_config):
+        init_db()
+        result = runner.invoke(cli, ["propose", "mark", "999", "lost"])
+        assert result.exit_code != 0
+        assert "not found" in result.output
+
+    def test_learn_no_api_key(self, runner, isolated_config):
+        init_db()
+        result = runner.invoke(cli, ["propose", "learn"])
+        assert result.exit_code != 0
+        assert "API key" in result.output
+
+    def test_prep_no_api_key(self, runner, isolated_config):
+        init_db()
+        result = runner.invoke(cli, ["propose", "prep", "~01abc"])
+        assert result.exit_code != 0
+        assert "API key" in result.output
+
+    def test_prep_job_not_in_db(self, runner, isolated_config, mock_keyring):
+        """prep with API key set but job not cached returns error."""
+        init_db()
+        mock_keyring["upwork-cli:anthropic_api_key"] = "sk-ant-test"
+        result = runner.invoke(cli, ["propose", "prep", "~01nonexistent"])
+        assert result.exit_code != 0
+        assert "not found" in result.output
+
+
+class TestPipelineCommands:
+    def test_view_empty(self, runner, isolated_config):
+        init_db()
+        result = runner.invoke(cli, ["pipeline", "view"])
+        assert result.exit_code == 0
+
+    def test_digest_empty(self, runner, isolated_config):
+        init_db()
+        result = runner.invoke(cli, ["pipeline", "digest"])
+        assert result.exit_code == 0
+        assert "No pipeline activity" in result.output
+
+    def test_stats_empty(self, runner, isolated_config):
+        init_db()
+        result = runner.invoke(cli, ["pipeline", "stats"])
+        assert result.exit_code == 0

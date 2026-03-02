@@ -2,7 +2,7 @@
 
 from anthropic import Anthropic
 
-MODEL = "claude-sonnet-4-5-20250929"
+from upwork_cli.ai.utils import DEFAULT_MODEL
 
 PREP_PROMPT = """\
 You are an expert Upwork freelancer coach. Generate interview preparation notes \
@@ -45,7 +45,7 @@ def generate_interview_prep(
     try:
         client = Anthropic(api_key=api_key)
         message = client.messages.create(
-            model=MODEL,
+            model=DEFAULT_MODEL,
             max_tokens=1500,
             messages=[{
                 "role": "user",

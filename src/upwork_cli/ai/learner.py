@@ -2,7 +2,7 @@
 
 from anthropic import Anthropic
 
-MODEL = "claude-sonnet-4-5-20250929"
+from upwork_cli.ai.utils import DEFAULT_MODEL
 
 LEARNER_PROMPT = """\
 You are an expert Upwork proposal analyst. Analyze these winning proposals and \
@@ -51,7 +51,7 @@ def extract_winning_patterns(proposals: list[dict], api_key: str) -> str:
     try:
         client = Anthropic(api_key=api_key)
         message = client.messages.create(
-            model=MODEL,
+            model=DEFAULT_MODEL,
             max_tokens=1024,
             messages=[{
                 "role": "user",

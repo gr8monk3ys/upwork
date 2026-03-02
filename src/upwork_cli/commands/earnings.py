@@ -22,7 +22,7 @@ def _get_client() -> UpworkClient:
     settings = load_settings()
     client = UpworkClient(settings=settings)
     if not client.is_authenticated:
-        console.print("[red]Not authenticated. Run 'upwork auth login' first.[/red]")
+        console.print("[red]Not authenticated. Run 'upwork config setup' first.[/red]")
         raise SystemExit(1)
     return client
 

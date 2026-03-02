@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import anthropic
 
+from upwork_cli.ai.utils import DEFAULT_MODEL
 from upwork_cli.config import load_profile, load_settings
-
-MODEL = "claude-sonnet-4-5-20250929"
 
 VALID_TONES = ("professional", "casual", "technical", "enthusiastic")
 VALID_LENGTHS = ("short", "medium", "long")
@@ -102,7 +101,7 @@ def draft_proposal(
 
     try:
         response = client.messages.create(
-            model=MODEL,
+            model=DEFAULT_MODEL,
             max_tokens=1024,
             system=_build_system_prompt(tone, length, style_guide),
             messages=[{"role": "user", "content": user_message}],
@@ -153,7 +152,7 @@ def refine_proposal(
 
     try:
         response = client.messages.create(
-            model=MODEL,
+            model=DEFAULT_MODEL,
             max_tokens=1024,
             system=system_prompt,
             messages=[{"role": "user", "content": user_message}],

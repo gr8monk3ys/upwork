@@ -1,12 +1,11 @@
 """AI-powered profile completeness audit using Claude."""
 
 import json
-import re
 from typing import Any
 
 from anthropic import Anthropic
 
-MODEL = "claude-sonnet-4-5-20250929"
+from upwork_cli.ai.utils import DEFAULT_MODEL, strip_json_fences
 
 AUDIT_PROMPT = """\
 You are an expert Upwork profile consultant. Evaluate the following freelancer \
@@ -73,7 +72,7 @@ def audit_profile(profile_text: str, api_key: str) -> dict[str, Any]:
     try:
         client = Anthropic(api_key=api_key)
         message = client.messages.create(
-            model=MODEL,
+            model=DEFAULT_MODEL,
             max_tokens=1024,
             messages=[
                 {
@@ -83,12 +82,7 @@ def audit_profile(profile_text: str, api_key: str) -> dict[str, Any]:
             ],
         )
 
-        raw = message.content[0].text.strip()
-        # Strip markdown code fencing if present
-        if raw.startswith("```"):
-            raw = re.sub(r"^```(?:json)?\s*", "", raw)
-            raw = re.sub(r"\s*```$", "", raw)
-
+        raw = strip_json_fences(message.content[0].text.strip())
         result = json.loads(raw)
 
         # Validate and clamp total_score
