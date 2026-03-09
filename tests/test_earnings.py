@@ -30,40 +30,49 @@ def _make_mock_client(authenticated=True):
 class TestSafeFloat:
     def test_none_returns_default(self):
         from upwork_cli.commands.earnings import _safe_float
+
         assert _safe_float(None) == 0.0
 
     def test_valid_number(self):
         from upwork_cli.commands.earnings import _safe_float
+
         assert _safe_float("42.5") == 42.5
 
     def test_integer_input(self):
         from upwork_cli.commands.earnings import _safe_float
+
         assert _safe_float(10) == 10.0
 
     def test_value_error(self):
         from upwork_cli.commands.earnings import _safe_float
+
         assert _safe_float("not_a_number") == 0.0
 
     def test_type_error(self):
         from upwork_cli.commands.earnings import _safe_float
+
         assert _safe_float([1, 2, 3]) == 0.0
 
     def test_custom_default(self):
         from upwork_cli.commands.earnings import _safe_float
+
         assert _safe_float(None, default=-1.0) == -1.0
 
 
 class TestFormatCurrency:
     def test_basic_amount(self):
         from upwork_cli.commands.earnings import _format_currency
+
         assert _format_currency(1234.56) == "$1,234.56"
 
     def test_zero(self):
         from upwork_cli.commands.earnings import _format_currency
+
         assert _format_currency(0) == "$0.00"
 
     def test_large_amount(self):
         from upwork_cli.commands.earnings import _format_currency
+
         result = _format_currency(1000000.0)
         assert "$1,000,000.00" == result
 
@@ -72,6 +81,7 @@ class TestGetFreelancerRef:
     @patch("upwork_cli.commands.earnings.UpworkClient")
     def test_happy_path(self, MockClient, runner, isolated_config):
         from upwork_cli.commands.earnings import _get_freelancer_ref
+
         client = _make_mock_client()
         ref = _get_freelancer_ref(client)
         assert ref == "~freelancer123"
@@ -79,6 +89,7 @@ class TestGetFreelancerRef:
     @patch("upwork_cli.commands.earnings.UpworkClient")
     def test_fallback_ref(self, MockClient, runner, isolated_config):
         from upwork_cli.commands.earnings import _get_freelancer_ref
+
         client = _make_mock_client()
         client.get_user_info.return_value = {"id": "alt-ref-456"}
         ref = _get_freelancer_ref(client)
@@ -87,6 +98,7 @@ class TestGetFreelancerRef:
     @patch("upwork_cli.commands.earnings.UpworkClient")
     def test_error_raises_system_exit(self, MockClient, runner, isolated_config):
         from upwork_cli.commands.earnings import _get_freelancer_ref
+
         client = _make_mock_client()
         client.get_user_info.side_effect = Exception("API down")
         with pytest.raises(SystemExit):

@@ -59,20 +59,26 @@ def research_client(
         client_data_parts.append(f"Country: {country}")
     client_data_parts.append(f"Payment Verified: {'Yes' if verified else 'No'}")
 
-    client_data = "\n".join(client_data_parts) if client_data_parts else "No client data available."
+    client_data = (
+        "\n".join(client_data_parts)
+        if client_data_parts
+        else "No client data available."
+    )
 
     try:
         client = Anthropic(api_key=api_key)
         message = client.messages.create(
             model=DEFAULT_MODEL,
             max_tokens=512,
-            messages=[{
-                "role": "user",
-                "content": RESEARCH_PROMPT.format(
-                    client_data=client_data,
-                    job_summary=job_summary,
-                ),
-            }],
+            messages=[
+                {
+                    "role": "user",
+                    "content": RESEARCH_PROMPT.format(
+                        client_data=client_data,
+                        job_summary=job_summary,
+                    ),
+                }
+            ],
         )
 
         raw = strip_json_fences(message.content[0].text.strip())

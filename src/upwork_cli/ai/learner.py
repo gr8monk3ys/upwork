@@ -53,10 +53,12 @@ def extract_winning_patterns(proposals: list[dict], api_key: str) -> str:
         message = client.messages.create(
             model=DEFAULT_MODEL,
             max_tokens=1024,
-            messages=[{
-                "role": "user",
-                "content": LEARNER_PROMPT.format(proposals_text=proposals_text),
-            }],
+            messages=[
+                {
+                    "role": "user",
+                    "content": LEARNER_PROMPT.format(proposals_text=proposals_text),
+                }
+            ],
         )
         return message.content[0].text
 

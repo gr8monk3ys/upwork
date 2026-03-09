@@ -71,7 +71,13 @@ def messages(ctx: click.Context) -> None:
 
 
 @messages.command("list")
-@click.option("--limit", default=20, show_default=True, type=int, help="Number of rooms to display.")
+@click.option(
+    "--limit",
+    default=20,
+    show_default=True,
+    type=int,
+    help="Number of rooms to display.",
+)
 def list_rooms(limit: int) -> None:
     """List recent message conversations/rooms."""
     client = _get_client()
@@ -108,9 +114,11 @@ def list_rooms(limit: int) -> None:
             roster = roster.get("user", [])
         if isinstance(roster, dict):
             roster = [roster]
-        participants = ", ".join(
-            u.get("name", u.get("userId", "Unknown")) for u in roster
-        ) if roster else "N/A"
+        participants = (
+            ", ".join(u.get("name", u.get("userId", "Unknown")) for u in roster)
+            if roster
+            else "N/A"
+        )
 
         # Extract last message preview
         recent = room.get("recentMessage", room.get("lastMessage", {})) or {}
@@ -121,7 +129,9 @@ def list_rooms(limit: int) -> None:
         if not preview:
             preview = "(no messages)"
 
-        updated = room.get("roomUpdatedDate", room.get("updatedAt", room.get("updated_at", "")))
+        updated = room.get(
+            "roomUpdatedDate", room.get("updatedAt", room.get("updated_at", ""))
+        )
 
         table.add_row(str(room_id), participants, preview, str(updated or ""))
 
@@ -130,7 +140,13 @@ def list_rooms(limit: int) -> None:
 
 @messages.command("read")
 @click.argument("room_id")
-@click.option("--limit", default=50, show_default=True, type=int, help="Number of messages to display.")
+@click.option(
+    "--limit",
+    default=50,
+    show_default=True,
+    type=int,
+    help="Number of messages to display.",
+)
 def read_messages(room_id: str, limit: int) -> None:
     """Read messages in a conversation."""
     client = _get_client()
@@ -206,7 +222,7 @@ def send_message(room_id: str, text: str) -> None:
         return
 
     try:
-        result = client.send_message(company, room_id, {"message": text})
+        client.send_message(company, room_id, {"message": text})
     except Exception as exc:
         console.print(f"[red]Failed to send message: {exc}[/red]")
         raise SystemExit(1)
@@ -225,8 +241,19 @@ def send_message(room_id: str, text: str) -> None:
 
 
 @messages.command("find")
-@click.option("--contract", required=True, type=str, help="Contract reference to find the room for.")
-@click.option("--limit", default=10, show_default=True, type=int, help="Number of recent messages to show.")
+@click.option(
+    "--contract",
+    required=True,
+    type=str,
+    help="Contract reference to find the room for.",
+)
+@click.option(
+    "--limit",
+    default=10,
+    show_default=True,
+    type=int,
+    help="Number of recent messages to show.",
+)
 def find_room(contract: str, limit: int) -> None:
     """Find a message room by contract reference."""
     client = _get_client()
@@ -247,11 +274,15 @@ def find_room(contract: str, limit: int) -> None:
         console.print(f"[yellow]No room found for contract {contract}.[/yellow]")
         return
 
-    console.print(f"\n[bold green]Found room:[/bold green] [cyan]{room_id}[/cyan] for contract [cyan]{contract}[/cyan]\n")
+    console.print(
+        f"\n[bold green]Found room:[/bold green] [cyan]{room_id}[/cyan] for contract [cyan]{contract}[/cyan]\n"
+    )
 
     # Show recent messages from the room
     try:
-        msg_result = client.get_room_messages(company, str(room_id), {"paging": f"0;{limit}"})
+        msg_result = client.get_room_messages(
+            company, str(room_id), {"paging": f"0;{limit}"}
+        )
     except Exception as exc:
         console.print(f"[yellow]Room found but could not load messages: {exc}[/yellow]")
         return

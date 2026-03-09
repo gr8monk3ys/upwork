@@ -3,18 +3,19 @@
 import json
 from unittest.mock import patch
 
-import pytest
 
 from upwork_cli.ai.researcher import research_client
 from tests.conftest import mock_anthropic_response
 
 
-SAMPLE_JSON = json.dumps({
-    "risk_level": "low",
-    "spending_tier": "large",
-    "brief": "Well-established client with strong track record.",
-    "proposal_tips": "Emphasize reliability and past results.",
-})
+SAMPLE_JSON = json.dumps(
+    {
+        "risk_level": "low",
+        "spending_tier": "large",
+        "brief": "Well-established client with strong track record.",
+        "proposal_tips": "Emphasize reliability and past results.",
+    }
+)
 
 
 class TestResearchClient:

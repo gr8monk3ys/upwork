@@ -20,9 +20,7 @@ def _make_mock_client(authenticated=True):
     client.is_authenticated = authenticated
     client.get_user_info.return_value = {"info": {"ref": "~user001"}}
     client.get_companies.return_value = {
-        "companies": {
-            "company": [{"company_id": "comp-123"}]
-        }
+        "companies": {"company": [{"company_id": "comp-123"}]}
     }
     return client
 
@@ -36,6 +34,7 @@ class TestGetCompany:
     @patch("upwork_cli.commands.messages.UpworkClient")
     def test_nested_dict_structure(self, MockClient, runner, isolated_config):
         from upwork_cli.commands.messages import _get_company
+
         client = _make_mock_client()
         result = _get_company(client)
         assert result == "comp-123"
@@ -43,16 +42,16 @@ class TestGetCompany:
     @patch("upwork_cli.commands.messages.UpworkClient")
     def test_list_structure(self, MockClient, runner, isolated_config):
         from upwork_cli.commands.messages import _get_company
+
         client = _make_mock_client()
-        client.get_companies.return_value = {
-            "companies": [{"company_id": "comp-456"}]
-        }
+        client.get_companies.return_value = {"companies": [{"company_id": "comp-456"}]}
         result = _get_company(client)
         assert result == "comp-456"
 
     @patch("upwork_cli.commands.messages.UpworkClient")
     def test_empty_raises_system_exit(self, MockClient, runner, isolated_config):
         from upwork_cli.commands.messages import _get_company
+
         client = _make_mock_client()
         client.get_companies.return_value = {"companies": {"company": []}}
         with pytest.raises(SystemExit):
@@ -61,6 +60,7 @@ class TestGetCompany:
     @patch("upwork_cli.commands.messages.UpworkClient")
     def test_api_error_raises_system_exit(self, MockClient, runner, isolated_config):
         from upwork_cli.commands.messages import _get_company
+
         client = _make_mock_client()
         client.get_companies.side_effect = Exception("API error")
         with pytest.raises(SystemExit):
@@ -71,6 +71,7 @@ class TestGetUserId:
     @patch("upwork_cli.commands.messages.UpworkClient")
     def test_happy_path(self, MockClient, runner, isolated_config):
         from upwork_cli.commands.messages import _get_user_id
+
         client = _make_mock_client()
         result = _get_user_id(client)
         assert result == "~user001"
@@ -78,6 +79,7 @@ class TestGetUserId:
     @patch("upwork_cli.commands.messages.UpworkClient")
     def test_error_returns_empty(self, MockClient, runner, isolated_config):
         from upwork_cli.commands.messages import _get_user_id
+
         client = _make_mock_client()
         client.get_user_info.side_effect = Exception("fail")
         result = _get_user_id(client)
@@ -285,9 +287,7 @@ class TestFindRoom:
     def test_found_with_messages(self, MockClient, runner, isolated_config):
         init_db()
         client = _make_mock_client()
-        client.get_room_by_contract.return_value = {
-            "room": {"roomId": "room-found"}
-        }
+        client.get_room_by_contract.return_value = {"room": {"roomId": "room-found"}}
         client.get_room_messages.return_value = {
             "stories": [
                 {

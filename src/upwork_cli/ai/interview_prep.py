@@ -47,14 +47,16 @@ def generate_interview_prep(
         message = client.messages.create(
             model=DEFAULT_MODEL,
             max_tokens=1500,
-            messages=[{
-                "role": "user",
-                "content": PREP_PROMPT.format(
-                    job_summary=job_summary,
-                    profile_summary=profile_summary,
-                    client_research_section=research_section,
-                ),
-            }],
+            messages=[
+                {
+                    "role": "user",
+                    "content": PREP_PROMPT.format(
+                        job_summary=job_summary,
+                        profile_summary=profile_summary,
+                        client_research_section=research_section,
+                    ),
+                }
+            ],
         )
         return message.content[0].text
 

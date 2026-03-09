@@ -20,7 +20,9 @@ class TestInterviewPrep:
         resp = mock_anthropic_response("Prep notes with research context.")
         with patch("upwork_cli.ai.interview_prep.Anthropic") as M:
             M.return_value.messages.create.return_value = resp
-            result = generate_interview_prep("job", "profile", "key", client_research="Low risk client")
+            result = generate_interview_prep(
+                "job", "profile", "key", client_research="Low risk client"
+            )
         assert "Prep notes" in result
 
     def test_raises_on_error(self):

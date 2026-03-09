@@ -3,27 +3,32 @@
 import json
 from unittest.mock import patch
 
-import pytest
 
-from upwork_cli.ai.auditor import audit_profile, FALLBACK_RESULT
+from upwork_cli.ai.auditor import audit_profile
 from tests.conftest import mock_anthropic_response
 
 
-SAMPLE_AUDIT_JSON = json.dumps({
-    "total_score": 72,
-    "breakdown": [
-        {"area": "Title", "score": 18, "feedback": "Great title."},
-        {"area": "Overview", "score": 15, "feedback": "Good but could be longer."},
-        {"area": "Skills", "score": 14, "feedback": "Needs more skills."},
-        {"area": "Portfolio", "score": 10, "feedback": "Add more items."},
-        {"area": "Rate & Experience", "score": 15, "feedback": "Rate is competitive."},
-    ],
-    "top_3_improvements": [
-        "Add 3 more portfolio items.",
-        "Expand overview to 500+ characters.",
-        "Add 5 more relevant skills.",
-    ],
-})
+SAMPLE_AUDIT_JSON = json.dumps(
+    {
+        "total_score": 72,
+        "breakdown": [
+            {"area": "Title", "score": 18, "feedback": "Great title."},
+            {"area": "Overview", "score": 15, "feedback": "Good but could be longer."},
+            {"area": "Skills", "score": 14, "feedback": "Needs more skills."},
+            {"area": "Portfolio", "score": 10, "feedback": "Add more items."},
+            {
+                "area": "Rate & Experience",
+                "score": 15,
+                "feedback": "Rate is competitive.",
+            },
+        ],
+        "top_3_improvements": [
+            "Add 3 more portfolio items.",
+            "Expand overview to 500+ characters.",
+            "Add 5 more relevant skills.",
+        ],
+    }
+)
 
 
 class TestAuditProfile:
@@ -47,7 +52,9 @@ class TestAuditProfile:
         assert result["total_score"] == 72
 
     def test_score_clamped_to_100(self):
-        bad_json = json.dumps({"total_score": 150, "breakdown": [], "top_3_improvements": []})
+        bad_json = json.dumps(
+            {"total_score": 150, "breakdown": [], "top_3_improvements": []}
+        )
         resp = mock_anthropic_response(bad_json)
         with patch("upwork_cli.ai.auditor.Anthropic") as MockClient:
             MockClient.return_value.messages.create.return_value = resp

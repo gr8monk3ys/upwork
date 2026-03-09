@@ -1,9 +1,7 @@
 """Tests for the AI job scoring module upwork_cli.ai.scorer."""
 
-import json
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
-import pytest
 
 from upwork_cli.ai.scorer import score_job, score_jobs_batch
 from tests.conftest import mock_anthropic_response
@@ -20,7 +18,9 @@ class TestScoreJob:
         assert reasoning == "Great match."
 
     def test_fenced_json_response(self):
-        resp = mock_anthropic_response('```json\n{"score": 7, "reasoning": "OK match."}\n```')
+        resp = mock_anthropic_response(
+            '```json\n{"score": 7, "reasoning": "OK match."}\n```'
+        )
         with patch("upwork_cli.ai.scorer.Anthropic") as MockClient:
             MockClient.return_value.messages.create.return_value = resp
             score, reasoning = score_job("job", "profile", "key")

@@ -14,7 +14,13 @@ class TestExtractWinningPatterns:
         with patch("upwork_cli.ai.learner.Anthropic") as M:
             M.return_value.messages.create.return_value = resp
             result = extract_winning_patterns(
-                [{"content": "My winning proposal", "job_title": "Dev", "tone": "professional"}],
+                [
+                    {
+                        "content": "My winning proposal",
+                        "job_title": "Dev",
+                        "tone": "professional",
+                    }
+                ],
                 "key",
             )
         assert "Opening" in result
@@ -37,7 +43,11 @@ class TestExtractWinningPatterns:
         with patch("upwork_cli.ai.learner.Anthropic") as M:
             M.return_value.messages.create.return_value = resp
             proposals = [
-                {"content": f"Proposal {i}", "job_title": f"Job {i}", "tone": "professional"}
+                {
+                    "content": f"Proposal {i}",
+                    "job_title": f"Job {i}",
+                    "tone": "professional",
+                }
                 for i in range(3)
             ]
             result = extract_winning_patterns(proposals, "key")

@@ -5,7 +5,6 @@ from __future__ import annotations
 import anthropic
 
 from upwork_cli.ai.utils import DEFAULT_MODEL
-from upwork_cli.config import load_profile, load_settings
 
 VALID_TONES = ("professional", "casual", "technical", "enthusiastic")
 VALID_LENGTHS = ("short", "medium", "long")
@@ -58,7 +57,9 @@ def _build_system_prompt(tone: str, length: str, style_guide: str = "") -> str:
         f"Length: Keep the proposal to {LENGTH_GUIDANCE[length]}."
     )
     if style_guide:
-        prompt += f"\n\nFollow these patterns from past winning proposals:\n{style_guide}"
+        prompt += (
+            f"\n\nFollow these patterns from past winning proposals:\n{style_guide}"
+        )
     return prompt
 
 
@@ -87,9 +88,13 @@ def draft_proposal(
         anthropic.APIError: If the API call fails after handling.
     """
     if tone not in VALID_TONES:
-        raise ValueError(f"Invalid tone '{tone}'. Must be one of: {', '.join(VALID_TONES)}")
+        raise ValueError(
+            f"Invalid tone '{tone}'. Must be one of: {', '.join(VALID_TONES)}"
+        )
     if length not in VALID_LENGTHS:
-        raise ValueError(f"Invalid length '{length}'. Must be one of: {', '.join(VALID_LENGTHS)}")
+        raise ValueError(
+            f"Invalid length '{length}'. Must be one of: {', '.join(VALID_LENGTHS)}"
+        )
 
     client = anthropic.Anthropic(api_key=api_key)
 
@@ -108,9 +113,7 @@ def draft_proposal(
         )
         return response.content[0].text
     except anthropic.AuthenticationError:
-        raise RuntimeError(
-            "Invalid Anthropic API key. Check your key in settings."
-        )
+        raise RuntimeError("Invalid Anthropic API key. Check your key in settings.")
     except anthropic.RateLimitError:
         raise RuntimeError(
             "Anthropic rate limit reached. Please wait a moment and try again."
@@ -159,9 +162,7 @@ def refine_proposal(
         )
         return response.content[0].text
     except anthropic.AuthenticationError:
-        raise RuntimeError(
-            "Invalid Anthropic API key. Check your key in settings."
-        )
+        raise RuntimeError("Invalid Anthropic API key. Check your key in settings.")
     except anthropic.RateLimitError:
         raise RuntimeError(
             "Anthropic rate limit reached. Please wait a moment and try again."

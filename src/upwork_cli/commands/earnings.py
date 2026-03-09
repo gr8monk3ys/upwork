@@ -1,7 +1,6 @@
 """Commands for viewing Upwork earnings, contracts, and time tracking."""
 
 import csv
-import sys
 from datetime import datetime, timedelta
 from io import StringIO
 
@@ -59,6 +58,7 @@ def _format_currency(amount: float) -> str:
 # Earnings command group
 # ---------------------------------------------------------------------------
 
+
 @click.group("earnings", invoke_without_command=True)
 @click.pass_context
 def earnings(ctx: click.Context) -> None:
@@ -111,11 +111,11 @@ def summary() -> None:
         # Handle both dict-style rows and list-style cell arrays.
         if isinstance(row, dict):
             amount = _safe_float(
-                row.get("amount")
-                or row.get("charge_amount")
-                or row.get("total_charge")
+                row.get("amount") or row.get("charge_amount") or row.get("total_charge")
             )
-            date_str = row.get("date", row.get("worked_on", row.get("date_created", "")))
+            date_str = row.get(
+                "date", row.get("worked_on", row.get("date_created", ""))
+            )
         elif isinstance(row, list):
             # Assume last cell is amount, first is date.
             amount = _safe_float(row[-1]) if row else 0.0
@@ -156,7 +156,9 @@ def summary() -> None:
 
 
 @earnings.command("report")
-@click.option("--from", "from_date", type=str, default=None, help="Start date (YYYY-MM-DD).")
+@click.option(
+    "--from", "from_date", type=str, default=None, help="Start date (YYYY-MM-DD)."
+)
 @click.option("--to", "to_date", type=str, default=None, help="End date (YYYY-MM-DD).")
 @click.option(
     "--format",
@@ -200,12 +202,10 @@ def report(from_date: str | None, to_date: str | None, output_format: str) -> No
         return
 
     # Extract column headers from the response, fall back to defaults.
-    columns = (
-        data.get("table", {}).get("cols", [])
-        or data.get("cols", [])
-        or []
-    )
-    col_names = [c.get("label", c.get("name", f"Col {i}")) for i, c in enumerate(columns)]
+    columns = data.get("table", {}).get("cols", []) or data.get("cols", []) or []
+    col_names = [
+        c.get("label", c.get("name", f"Col {i}")) for i, c in enumerate(columns)
+    ]
     if not col_names:
         col_names = ["Date", "Client", "Contract", "Amount", "Type"]
 
@@ -215,16 +215,28 @@ def report(from_date: str | None, to_date: str | None, output_format: str) -> No
         if isinstance(row, dict):
             cells = row.get("c", [])
             if cells and isinstance(cells, list):
-                rows.append([str((c or {}).get("v", "")) if isinstance(c, dict) else str(c) for c in cells])
+                rows.append(
+                    [
+                        str((c or {}).get("v", "")) if isinstance(c, dict) else str(c)
+                        for c in cells
+                    ]
+                )
             else:
                 # Flat dict: pull values matching column order where possible.
-                rows.append([
-                    str(row.get("date", row.get("worked_on", ""))),
-                    str(row.get("client", row.get("buyer_company_name", ""))),
-                    str(row.get("contract", row.get("engagement_title", ""))),
-                    str(row.get("amount", row.get("charge_amount", row.get("total_charge", "")))),
-                    str(row.get("type", row.get("subtype", ""))),
-                ])
+                rows.append(
+                    [
+                        str(row.get("date", row.get("worked_on", ""))),
+                        str(row.get("client", row.get("buyer_company_name", ""))),
+                        str(row.get("contract", row.get("engagement_title", ""))),
+                        str(
+                            row.get(
+                                "amount",
+                                row.get("charge_amount", row.get("total_charge", "")),
+                            )
+                        ),
+                        str(row.get("type", row.get("subtype", ""))),
+                    ]
+                )
         elif isinstance(row, list):
             rows.append([str(v) for v in row])
 
@@ -250,7 +262,13 @@ def report(from_date: str | None, to_date: str | None, output_format: str) -> No
 
 
 @earnings.command("export")
-@click.option("--output", "output_file", type=str, default="earnings_export.csv", help="Output file path.")
+@click.option(
+    "--output",
+    "output_file",
+    type=str,
+    default="earnings_export.csv",
+    help="Output file path.",
+)
 def export(output_file: str) -> None:
     """Export earnings data to a CSV file."""
     client = _get_client()
@@ -280,19 +298,32 @@ def export(output_file: str) -> None:
         if isinstance(row, dict):
             cells = row.get("c", [])
             if cells and isinstance(cells, list):
-                values = [(c or {}).get("v", "") if isinstance(c, dict) else c for c in cells]
+                values = [
+                    (c or {}).get("v", "") if isinstance(c, dict) else c for c in cells
+                ]
                 entry = {}
                 for idx, name in enumerate(fieldnames):
                     entry[name] = str(values[idx]) if idx < len(values) else ""
                 rows.append(entry)
             else:
-                rows.append({
-                    "Date": str(row.get("date", row.get("worked_on", ""))),
-                    "Client": str(row.get("client", row.get("buyer_company_name", ""))),
-                    "Contract": str(row.get("contract", row.get("engagement_title", ""))),
-                    "Amount": str(row.get("amount", row.get("charge_amount", row.get("total_charge", "")))),
-                    "Type": str(row.get("type", row.get("subtype", ""))),
-                })
+                rows.append(
+                    {
+                        "Date": str(row.get("date", row.get("worked_on", ""))),
+                        "Client": str(
+                            row.get("client", row.get("buyer_company_name", ""))
+                        ),
+                        "Contract": str(
+                            row.get("contract", row.get("engagement_title", ""))
+                        ),
+                        "Amount": str(
+                            row.get(
+                                "amount",
+                                row.get("charge_amount", row.get("total_charge", "")),
+                            )
+                        ),
+                        "Type": str(row.get("type", row.get("subtype", ""))),
+                    }
+                )
         elif isinstance(row, list):
             entry = {}
             for idx, name in enumerate(fieldnames):
@@ -313,6 +344,7 @@ def export(output_file: str) -> None:
 # ---------------------------------------------------------------------------
 # Contracts command group
 # ---------------------------------------------------------------------------
+
 
 @click.group("contracts", invoke_without_command=True)
 @click.pass_context
@@ -369,9 +401,19 @@ def contracts_list() -> None:
         else:
             status_display = status_str
 
-        rate = _format_currency(contract.hourly_rate) if contract.hourly_rate is not None else "-"
-        hours = f"{contract.total_hours:.1f}" if contract.total_hours is not None else "-"
-        total = _format_currency(contract.total_charge) if contract.total_charge is not None else "-"
+        rate = (
+            _format_currency(contract.hourly_rate)
+            if contract.hourly_rate is not None
+            else "-"
+        )
+        hours = (
+            f"{contract.total_hours:.1f}" if contract.total_hours is not None else "-"
+        )
+        total = (
+            _format_currency(contract.total_charge)
+            if contract.total_charge is not None
+            else "-"
+        )
 
         rich_table.add_row(
             contract.title,
@@ -418,11 +460,15 @@ def contracts_detail(reference: str) -> None:
         f"[bold]Created:[/bold]     {contract.created_at}",
     ]
     if contract.hourly_rate is not None:
-        lines.append(f"[bold]Hourly Rate:[/bold] {_format_currency(contract.hourly_rate)}")
+        lines.append(
+            f"[bold]Hourly Rate:[/bold] {_format_currency(contract.hourly_rate)}"
+        )
     if contract.total_hours is not None:
         lines.append(f"[bold]Total Hours:[/bold] {contract.total_hours:.1f}")
     if contract.total_charge is not None:
-        lines.append(f"[bold]Total Earned:[/bold] {_format_currency(contract.total_charge)}")
+        lines.append(
+            f"[bold]Total Earned:[/bold] {_format_currency(contract.total_charge)}"
+        )
 
     # Milestones (if available in the response).
     milestones = eng.get("milestones", eng.get("fixed_price_milestones", []))
@@ -438,9 +484,7 @@ def contracts_detail(reference: str) -> None:
             ms_desc = ms.get("description", ms.get("title", "Untitled"))
             ms_amount = _safe_float(ms.get("amount", 0))
             ms_status = ms.get("status", ms.get("state", ""))
-            lines.append(
-                f"  - {ms_desc}: {_format_currency(ms_amount)} [{ms_status}]"
-            )
+            lines.append(f"  - {ms_desc}: {_format_currency(ms_amount)} [{ms_status}]")
 
     console.print(
         Panel(

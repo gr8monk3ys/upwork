@@ -7,7 +7,6 @@ from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from upwork_cli.ai.utils import DEFAULT_MODEL, strip_json_fences
-from upwork_cli.config import load_profile, load_settings
 
 SCORING_PROMPT = """\
 You are an expert Upwork freelancer advisor. Score how well this job posting \

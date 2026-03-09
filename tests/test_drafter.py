@@ -52,12 +52,10 @@ class TestDraftProposal:
 
     def test_generic_api_error(self):
         with patch("upwork_cli.ai.drafter.anthropic.Anthropic") as MockClient:
-            MockClient.return_value.messages.create.side_effect = (
-                anthropic.APIError(
-                    message="Server error",
-                    request=MagicMock(),
-                    body={"error": {"message": "Server error"}},
-                )
+            MockClient.return_value.messages.create.side_effect = anthropic.APIError(
+                message="Server error",
+                request=MagicMock(),
+                body={"error": {"message": "Server error"}},
             )
             with pytest.raises(RuntimeError, match="Anthropic API error"):
                 draft_proposal("job", "profile", "key")
