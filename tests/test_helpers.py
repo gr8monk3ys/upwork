@@ -1,8 +1,7 @@
 """Tests for helper functions in upwork_cli.commands.jobs."""
 
-import json
+from datetime import datetime, timedelta, timezone
 
-import pytest
 
 from upwork_cli.commands.jobs import (
     _truncate,
@@ -10,8 +9,11 @@ from upwork_cli.commands.jobs import (
     _format_skills,
     _score_color,
     _filter_jobs,
+    _normalize_search_term,
+    _get_saved_search_terms,
 )
 from upwork_cli.models import JobPosting
+from upwork_cli.config import Settings
 
 
 class TestTruncate:
@@ -89,17 +91,65 @@ class TestFilterJobs:
 
     def test_budget_min_filter(self):
         jobs = [self._make_posting(budget=100), self._make_posting(budget=500)]
-        filtered = _filter_jobs(jobs, budget_min=200, budget_max=None, job_type=None, posted=None)
+        filtered = _filter_jobs(
+            jobs, budget_min=200, budget_max=None, job_type=None, posted=None
+        )
         assert len(filtered) == 1
         assert filtered[0].budget_amount == 500
 
     def test_budget_max_filter(self):
         jobs = [self._make_posting(budget=100), self._make_posting(budget=500)]
-        filtered = _filter_jobs(jobs, budget_min=None, budget_max=200, job_type=None, posted=None)
+        filtered = _filter_jobs(
+            jobs, budget_min=None, budget_max=200, job_type=None, posted=None
+        )
         assert len(filtered) == 1
         assert filtered[0].budget_amount == 100
 
     def test_none_budget_excluded_with_min(self):
         jobs = [self._make_posting(budget=None)]
-        filtered = _filter_jobs(jobs, budget_min=50, budget_max=None, job_type=None, posted=None)
+        filtered = _filter_jobs(
+            jobs, budget_min=50, budget_max=None, job_type=None, posted=None
+        )
         assert len(filtered) == 0
+
+    def test_job_type_filter(self):
+        jobs = [
+            self._make_posting(budget=100, engagement="Hourly: 30+ hrs/week"),
+            self._make_posting(budget=200, engagement="Fixed-price"),
+        ]
+        filtered = _filter_jobs(
+            jobs, budget_min=None, budget_max=None, job_type="fixed", posted=None
+        )
+        assert len(filtered) == 1
+        assert filtered[0].engagement == "Fixed-price"
+
+    def test_posted_filter(self):
+        now = datetime.now(timezone.utc)
+        jobs = [
+            self._make_posting(
+                budget=100, created_at=(now - timedelta(hours=2)).isoformat()
+            ),
+            self._make_posting(
+                budget=200, created_at=(now - timedelta(days=2)).isoformat()
+            ),
+        ]
+        filtered = _filter_jobs(
+            jobs, budget_min=None, budget_max=None, job_type=None, posted="24h"
+        )
+        assert len(filtered) == 1
+        assert filtered[0].budget_amount == 100
+
+
+class TestSavedSearchHelpers:
+    def test_normalize_search_term(self):
+        assert _normalize_search_term("  python   developer  ") == "python developer"
+
+    def test_saved_search_terms_are_deduplicated(self):
+        settings = Settings(
+            default_search_terms=[
+                " python developer ",
+                "python developer",
+                "react native",
+            ]
+        )
+        assert _get_saved_search_terms(settings) == ["python developer", "react native"]

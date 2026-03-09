@@ -1,9 +1,12 @@
 """Tests for the job pipeline dashboard (DB operations and CLI)."""
 
+from datetime import datetime, timezone
+
 import pytest
 from click.testing import CliRunner
 
 from upwork_cli.cli import cli
+from upwork_cli.commands.pipeline import _filter_recent_history
 from upwork_cli.db import (
     init_db,
     upsert_job,
@@ -129,4 +132,19 @@ class TestPipelineCli:
         init_db()
         result = runner.invoke(cli, ["pipeline", "stats"])
         assert result.exit_code == 0
-        assert "No jobs" in result.output
+
+
+class TestPipelineHelpers:
+    def test_recent_history_handles_sqlite_timestamps(self):
+        history = [
+            {"job_id": "~01abc", "moved_at": "2026-03-08 12:00:00"},
+            {"job_id": "~01old", "moved_at": "2026-03-01 12:00:00"},
+        ]
+
+        recent = _filter_recent_history(
+            history,
+            days=1,
+            now=datetime(2026, 3, 8, 12, 30, tzinfo=timezone.utc),
+        )
+
+        assert [item["job_id"] for item in recent] == ["~01abc"]

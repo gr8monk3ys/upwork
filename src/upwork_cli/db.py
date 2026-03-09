@@ -3,7 +3,6 @@
 import json
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime
 from typing import Any, Generator, Optional
 
 from upwork_cli.config import DB_FILE, ensure_config_dir
@@ -22,6 +21,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     client_total_spent REAL,
     client_total_hires INTEGER,
     client_feedback REAL,
+    client_verified INTEGER DEFAULT 0,
     created_at TEXT,
     fetched_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
@@ -76,6 +76,7 @@ MIGRATIONS = [
     "ALTER TABLE proposals ADD COLUMN outcome TEXT DEFAULT NULL",
     "ALTER TABLE jobs ADD COLUMN category TEXT DEFAULT ''",
     "ALTER TABLE jobs ADD COLUMN subcategory TEXT DEFAULT ''",
+    "ALTER TABLE jobs ADD COLUMN client_verified INTEGER DEFAULT 0",
 ]
 
 
@@ -98,6 +99,7 @@ def get_connection() -> Generator[sqlite3.Connection, None, None]:
     conn = sqlite3.connect(get_db_path())
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
     try:
         yield conn
         conn.commit()
@@ -120,13 +122,16 @@ def upsert_job(job: dict[str, Any]) -> None:
             """INSERT OR REPLACE INTO jobs
             (id, title, description, skills, budget_amount, budget_currency,
              duration, engagement, client_country, client_total_spent,
-             client_total_hires, client_feedback, created_at, category, subcategory)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+             client_total_hires, client_feedback, client_verified, created_at,
+             category, subcategory)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 job.get("id", ""),
                 job.get("title", ""),
                 job.get("description", ""),
-                json.dumps(job.get("skills", [])) if isinstance(job.get("skills"), list) else job.get("skills", "[]"),
+                json.dumps(job.get("skills", []))
+                if isinstance(job.get("skills"), list)
+                else job.get("skills", "[]"),
                 job.get("budget_amount"),
                 job.get("budget_currency"),
                 job.get("duration"),
@@ -135,6 +140,7 @@ def upsert_job(job: dict[str, Any]) -> None:
                 job.get("client_total_spent"),
                 job.get("client_total_hires"),
                 job.get("client_feedback"),
+                int(bool(job.get("client_verified"))),
                 job.get("created_at"),
                 job.get("category", ""),
                 job.get("subcategory", ""),
@@ -150,8 +156,14 @@ def save_score(job_id: str, score: int, reasoning: str) -> None:
         )
 
 
-def save_proposal(job_id: str, job_title: str, content: str, tone: str = "professional") -> int:
+def save_proposal(
+    job_id: str, job_title: str, content: str, tone: str = "professional"
+) -> int:
     with get_connection() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO jobs (id, title) VALUES (?, ?)",
+            (job_id, job_title or job_id),
+        )
         cursor = conn.execute(
             "INSERT INTO proposals (job_id, job_title, content, tone) VALUES (?, ?, ?, ?)",
             (job_id, job_title, content, tone),
@@ -298,7 +310,12 @@ def get_pipeline_stats() -> dict[str, Any]:
 
         # Win rate
         won = stage_counts.get("won", 0)
-        applied = stage_counts.get("applied", 0) + stage_counts.get("interviewing", 0) + won + stage_counts.get("lost", 0)
+        applied = (
+            stage_counts.get("applied", 0)
+            + stage_counts.get("interviewing", 0)
+            + won
+            + stage_counts.get("lost", 0)
+        )
         win_rate = (won / applied * 100) if applied > 0 else 0.0
 
         # Top categories
@@ -308,7 +325,9 @@ def get_pipeline_stats() -> dict[str, Any]:
             WHERE j.category != ''
             GROUP BY j.category ORDER BY cnt DESC LIMIT 5"""
         ).fetchall()
-        top_categories = [{"category": r["category"], "count": r["cnt"]} for r in cat_rows]
+        top_categories = [
+            {"category": r["category"], "count": r["cnt"]} for r in cat_rows
+        ]
 
         return {
             "stage_counts": stage_counts,

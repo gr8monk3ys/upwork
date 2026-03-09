@@ -37,7 +37,10 @@ class JobPosting:
             id=node.get("id") or node.get("ciphertext", ""),
             title=node.get("title", ""),
             description=node.get("description", ""),
-            skills=[s.get("prettyName") or s.get("name", "") for s in (node.get("skills") or [])],
+            skills=[
+                s.get("prettyName") or s.get("name", "")
+                for s in (node.get("skills") or [])
+            ],
             budget_amount=float(amount["amount"]) if amount.get("amount") else None,
             budget_currency=amount.get("currencyCode", "USD"),
             duration=node.get("duration", ""),
@@ -45,7 +48,9 @@ class JobPosting:
             engagement=node.get("engagement", ""),
             created_at=node.get("createdDateTime", ""),
             client_country=(client.get("location") or {}).get("country", ""),
-            client_total_spent=float(total_spent["amount"]) if total_spent.get("amount") else None,
+            client_total_spent=float(total_spent["amount"])
+            if total_spent.get("amount")
+            else None,
             client_total_hires=client.get("totalHires"),
             client_feedback=client.get("totalFeedback"),
             client_verified=client.get("verificationStatus") == "VERIFIED",
@@ -62,7 +67,10 @@ class JobPosting:
             id=data.get("id") or data.get("ciphertext", ""),
             title=data.get("title", ""),
             description=data.get("snippet") or data.get("description", ""),
-            skills=[s if isinstance(s, str) else s.get("name", "") for s in (data.get("skills") or [])],
+            skills=[
+                s if isinstance(s, str) else s.get("name", "")
+                for s in (data.get("skills") or [])
+            ],
             budget_amount=float(budget["amount"]) if budget.get("amount") else None,
             budget_currency=budget.get("currencyCode", "USD"),
             duration=data.get("duration", ""),
@@ -78,18 +86,23 @@ class JobPosting:
     def from_rss(cls, entry: dict[str, Any]) -> "JobPosting":
         description = entry.get("summary", "")
         budget_str = ""
-        skills_list = []
 
         if "<b>Budget</b>:" in description:
             parts = description.split("<b>Budget</b>:")
             if len(parts) > 1:
-                budget_str = parts[1].split("<br")[0].strip().replace("$", "").replace(",", "")
+                budget_str = (
+                    parts[1].split("<br")[0].strip().replace("$", "").replace(",", "")
+                )
 
         return cls(
-            id=entry.get("link", "").split("~")[-1] if "~" in entry.get("link", "") else entry.get("id", ""),
+            id=entry.get("link", "").split("~")[-1]
+            if "~" in entry.get("link", "")
+            else entry.get("id", ""),
             title=entry.get("title", ""),
             description=description,
-            budget_amount=float(budget_str) if budget_str and budget_str.replace(".", "").isdigit() else None,
+            budget_amount=float(budget_str)
+            if budget_str and budget_str.replace(".", "").isdigit()
+            else None,
             created_at=entry.get("published", ""),
         )
 
@@ -107,6 +120,7 @@ class JobPosting:
             "client_total_spent": self.client_total_spent,
             "client_total_hires": self.client_total_hires,
             "client_feedback": self.client_feedback,
+            "client_verified": self.client_verified,
             "created_at": self.created_at,
             "category": self.category,
             "subcategory": self.subcategory,

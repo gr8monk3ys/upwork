@@ -1,10 +1,9 @@
 """Job pipeline dashboard — track jobs through your application funnel."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import click
 from rich.console import Console
-from rich.panel import Panel
 from rich.table import Table
 
 from upwork_cli.db import (
@@ -18,6 +17,44 @@ from upwork_cli.db import (
 from upwork_cli.commands.jobs import _format_budget, _truncate
 
 console = Console()
+
+
+def _parse_history_timestamp(value: str) -> datetime | None:
+    """Parse SQLite and ISO timestamps into a timezone-aware datetime."""
+    if not value:
+        return None
+
+    candidates = [value]
+    if value.endswith("Z"):
+        candidates.append(value[:-1] + "+00:00")
+    if " " in value and "T" not in value:
+        candidates.append(value.replace(" ", "T", 1))
+
+    for candidate in candidates:
+        try:
+            parsed = datetime.fromisoformat(candidate)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc)
+        except ValueError:
+            continue
+    return None
+
+
+def _filter_recent_history(
+    history: list[dict],
+    days: int,
+    now: datetime | None = None,
+) -> list[dict]:
+    """Return only transitions newer than the given day window."""
+    current_time = now or datetime.now(timezone.utc)
+    cutoff = current_time - timedelta(days=days)
+    recent = []
+    for item in history:
+        moved_at = _parse_history_timestamp(item.get("moved_at", ""))
+        if moved_at is not None and moved_at >= cutoff:
+            recent.append(item)
+    return recent
 
 
 @click.group()
@@ -83,7 +120,9 @@ def view(stage):
 @pipeline.command()
 @click.argument("job_id")
 @click.argument("stage", type=click.Choice(PIPELINE_STAGES))
-@click.option("--notes", type=str, default="", help="Optional notes for this stage change.")
+@click.option(
+    "--notes", type=str, default="", help="Optional notes for this stage change."
+)
 def move(job_id, stage, notes):
     """Move a job to a new pipeline stage."""
     set_pipeline_stage(job_id, stage, notes)
@@ -125,7 +164,13 @@ def stats():
 
 
 @pipeline.command()
-@click.option("--days", type=int, default=7, show_default=True, help="Number of days to look back.")
+@click.option(
+    "--days",
+    type=int,
+    default=7,
+    show_default=True,
+    help="Number of days to look back.",
+)
 def digest(days):
     """Show recent pipeline activity."""
     history = get_pipeline_history()
@@ -134,11 +179,12 @@ def digest(days):
         console.print("[yellow]No pipeline activity yet.[/yellow]")
         return
 
-    cutoff = (datetime.now() - timedelta(days=days)).isoformat()
-    recent = [h for h in history if (h.get("moved_at") or "") >= cutoff]
+    recent = _filter_recent_history(history, days)
 
     if not recent:
-        console.print(f"[yellow]No pipeline activity in the last {days} day(s).[/yellow]")
+        console.print(
+            f"[yellow]No pipeline activity in the last {days} day(s).[/yellow]"
+        )
         return
 
     table = Table(title=f"Pipeline Activity (last {days} days)", show_lines=True)

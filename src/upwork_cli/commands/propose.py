@@ -1,6 +1,7 @@
 """AI-powered proposal / cover letter generation for Upwork jobs."""
 
 import os
+import json
 import subprocess
 import tempfile
 
@@ -18,7 +19,6 @@ from upwork_cli.db import (
     get_connection,
     save_proposal,
     get_proposals,
-    get_jobs_with_scores,
     set_pipeline_stage,
     mark_proposal_outcome,
     get_winning_proposals,
@@ -26,6 +26,22 @@ from upwork_cli.db import (
 from upwork_cli.ai.drafter import draft_proposal, refine_proposal
 
 console = Console()
+
+
+def _normalise_skills(value) -> list[str]:
+    """Return a clean list of skill names from DB or API payloads."""
+    if not value:
+        return []
+    if isinstance(value, list):
+        return [str(item) for item in value if item]
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return [str(item) for item in parsed if item]
+        except json.JSONDecodeError:
+            return [value]
+    return [str(value)]
 
 
 def _get_job_from_db(job_id: str) -> dict | None:
@@ -137,7 +153,7 @@ def generate(job_id: str, tone: str, length: str, open_editor: bool, research: b
     if not settings.anthropic_api_key:
         console.print(
             "[red]Anthropic API key not configured.[/red] "
-            "Run [bold]upwork configure[/bold] first."
+            "Run [bold]upwork config setup[/bold] first."
         )
         raise SystemExit(1)
 
@@ -150,7 +166,9 @@ def generate(job_id: str, tone: str, length: str, open_editor: bool, research: b
     # 1. Load job ----------------------------------------------------------
     job = _get_job_from_db(job_id)
     if job is None:
-        console.print(f"[dim]Job {job_id} not in local cache. Fetching from API...[/dim]")
+        console.print(
+            f"[dim]Job {job_id} not in local cache. Fetching from API...[/dim]"
+        )
         try:
             client = UpworkClient(settings=settings)
             job_data = client.get_job_detail(job_id)
@@ -175,18 +193,17 @@ def generate(job_id: str, tone: str, length: str, open_editor: bool, research: b
     job_parts = [f"Title: {job.get('title', '')}"]
     if job.get("description"):
         job_parts.append(f"Description: {job['description'][:1000]}")
-    if job.get("skills"):
-        skills = job["skills"]
-        if isinstance(skills, str):
-            job_parts.append(f"Skills: {skills}")
-        else:
-            job_parts.append(f"Skills: {', '.join(skills)}")
+    skills = _normalise_skills(job.get("skills"))
+    if skills:
+        job_parts.append(f"Skills: {', '.join(skills)}")
     if job.get("budget_amount"):
         job_parts.append(f"Budget: ${job['budget_amount']:,.0f}")
     if job.get("duration"):
         job_parts.append(f"Duration: {job['duration']}")
     if job.get("engagement"):
         job_parts.append(f"Engagement: {job['engagement']}")
+    if job.get("client_verified"):
+        job_parts.append("Client: Payment Verified")
     job_summary = "\n".join(job_parts)
 
     profile_summary = profile.summary() if profile.title else ""
@@ -202,18 +219,20 @@ def generate(job_id: str, tone: str, length: str, open_editor: bool, research: b
                 total_hires=job.get("client_total_hires"),
                 feedback=job.get("client_feedback"),
                 country=job.get("client_country", ""),
-                verified=False,
+                verified=bool(job.get("client_verified")),
                 api_key=settings.anthropic_api_key,
             )
 
         if client_research.get("brief"):
-            console.print(Panel(
-                f"[bold]Risk:[/bold] {client_research.get('risk_level', '?')}\n"
-                f"[bold]Tier:[/bold] {client_research.get('spending_tier', '?')}\n\n"
-                f"{client_research.get('brief', '')}",
-                title="Client Research",
-                border_style="cyan",
-            ))
+            console.print(
+                Panel(
+                    f"[bold]Risk:[/bold] {client_research.get('risk_level', '?')}\n"
+                    f"[bold]Tier:[/bold] {client_research.get('spending_tier', '?')}\n\n"
+                    f"{client_research.get('brief', '')}",
+                    title="Client Research",
+                    border_style="cyan",
+                )
+            )
             tips = client_research.get("proposal_tips", "")
             if tips:
                 job_summary += f"\n\nClient Research Tips: {tips}"
@@ -284,14 +303,16 @@ def refine(feedback: str | None):
     if not settings.anthropic_api_key:
         console.print(
             "[red]Anthropic API key not configured.[/red] "
-            "Run [bold]upwork configure[/bold] first."
+            "Run [bold]upwork config setup[/bold] first."
         )
         raise SystemExit(1)
 
     # Load most recent proposal
     proposal = _get_latest_proposal()
     if proposal is None:
-        console.print("[red]No proposals found.[/red] Generate one first with [bold]propose generate[/bold].")
+        console.print(
+            "[red]No proposals found.[/red] Generate one first with [bold]propose generate[/bold]."
+        )
         raise SystemExit(1)
 
     original_content = proposal["content"]
@@ -455,12 +476,9 @@ def prep(job_id: str):
     job_parts = [f"Title: {job.get('title', '')}"]
     if job.get("description"):
         job_parts.append(f"Description: {job['description'][:1000]}")
-    if job.get("skills"):
-        skills = job["skills"]
-        if isinstance(skills, str):
-            job_parts.append(f"Skills: {skills}")
-        else:
-            job_parts.append(f"Skills: {', '.join(skills)}")
+    skills = _normalise_skills(job.get("skills"))
+    if skills:
+        job_parts.append(f"Skills: {', '.join(skills)}")
     job_summary = "\n".join(job_parts)
     profile_summary = profile.summary() if profile.title else ""
 
@@ -478,11 +496,13 @@ def prep(job_id: str):
             raise SystemExit(1)
 
     console.print()
-    console.print(Panel(
-        Markdown(prep_text),
-        title=f"Interview Prep — {job.get('title', 'Untitled')}",
-        border_style="green",
-    ))
+    console.print(
+        Panel(
+            Markdown(prep_text),
+            title=f"Interview Prep — {job.get('title', 'Untitled')}",
+            border_style="green",
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -549,10 +569,12 @@ def learn():
     style_guide_path.write_text(style_guide, encoding="utf-8")
 
     console.print()
-    console.print(Panel(
-        Markdown(style_guide),
-        title="Winning Proposal Style Guide",
-        border_style="green",
-    ))
+    console.print(
+        Panel(
+            Markdown(style_guide),
+            title="Winning Proposal Style Guide",
+            border_style="green",
+        )
+    )
     console.print(f"\n[dim]Style guide saved to {style_guide_path}[/dim]")
     console.print("[dim]Future proposals will automatically use this guide.[/dim]")

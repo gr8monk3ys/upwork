@@ -1,9 +1,6 @@
 """Tests for data models in upwork_cli.models."""
 
-import pytest
-
 from upwork_cli.models import JobPosting, Contract, Message
-from tests.conftest import _make_graphql_node, _make_rest_job, _make_rss_entry
 
 
 class TestJobPostingFromGraphQL:
@@ -55,7 +52,12 @@ class TestJobPostingFromRss:
         assert job.budget_amount == 2500.0
 
     def test_no_budget_in_rss(self):
-        entry = {"title": "No Budget Job", "link": "", "id": "rss-no-budget", "summary": "Just text."}
+        entry = {
+            "title": "No Budget Job",
+            "link": "",
+            "id": "rss-no-budget",
+            "summary": "Just text.",
+        }
         job = JobPosting.from_rss(entry)
         assert job.budget_amount is None
 
@@ -74,10 +76,22 @@ class TestToDbDict:
         job = JobPosting(id="~01x", title="Test")
         d = job.to_db_dict()
         expected_keys = {
-            "id", "title", "description", "skills", "budget_amount",
-            "budget_currency", "duration", "engagement", "client_country",
-            "client_total_spent", "client_total_hires", "client_feedback",
-            "created_at", "category", "subcategory",
+            "id",
+            "title",
+            "description",
+            "skills",
+            "budget_amount",
+            "budget_currency",
+            "duration",
+            "engagement",
+            "client_country",
+            "client_total_spent",
+            "client_total_hires",
+            "client_feedback",
+            "client_verified",
+            "created_at",
+            "category",
+            "subcategory",
         }
         assert set(d.keys()) == expected_keys
 

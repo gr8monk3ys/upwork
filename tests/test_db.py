@@ -1,6 +1,7 @@
 """Tests for the SQLite database layer in upwork_cli.db."""
 
 import json
+import sqlite3
 
 import pytest
 
@@ -78,6 +79,14 @@ class TestUpsertJob:
         rows = get_jobs_with_scores(limit=10)
         assert json.loads(rows[0]["skills"]) == ["Go", "Rust"]
 
+    def test_client_verified_roundtrip(self, isolated_config):
+        init_db()
+        job = _make_job_dict(client_verified=True)
+        upsert_job(job)
+
+        rows = get_jobs_with_scores(limit=10)
+        assert rows[0]["client_verified"] == 1
+
 
 class TestScores:
     def test_save_and_get_score(self, isolated_config):
@@ -100,6 +109,11 @@ class TestScores:
         rows = get_jobs_with_scores(limit=10)
         scores = [r["score"] for r in rows]
         assert scores == [9, 6, 3]
+
+    def test_score_requires_existing_job(self, isolated_config):
+        init_db()
+        with pytest.raises(sqlite3.IntegrityError):
+            save_score("~missing", 8, "Should fail")
 
 
 class TestProposals:

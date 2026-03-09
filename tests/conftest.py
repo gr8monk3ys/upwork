@@ -1,7 +1,5 @@
 """Shared fixtures for the Upwork CLI test suite."""
 
-import json
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -96,6 +94,7 @@ def _make_job_dict(**overrides) -> dict:
         "client_total_spent": 150000.0,
         "client_total_hires": 42,
         "client_feedback": 4.9,
+        "client_verified": True,
         "created_at": "2025-01-15T10:00:00Z",
     }
     base.update(overrides)
