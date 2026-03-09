@@ -203,7 +203,13 @@ def applications(ctx: click.Context) -> None:
     show_default=True,
     help="Sort field.",
 )
-@click.option("--limit", default=20, show_default=True, type=int, help="Maximum applications to display.")
+@click.option(
+    "--limit",
+    default=20,
+    show_default=True,
+    type=int,
+    help="Maximum applications to display.",
+)
 def list_applications(status: str, sort_name: str, limit: int) -> None:
     """List your recent proposal applications."""
     client = _get_client()
@@ -216,7 +222,9 @@ def list_applications(status: str, sort_name: str, limit: int) -> None:
     sort_field = APPLICATION_SORT_FIELDS[sort_name.lower()]
 
     try:
-        applications_data = _collect_applications(client, statuses=statuses, limit=limit, sort_field=sort_field)
+        applications_data = _collect_applications(
+            client, statuses=statuses, limit=limit, sort_field=sort_field
+        )
     except Exception as exc:
         console.print(f"[red]Failed to fetch applications: {exc}[/red]")
         raise SystemExit(1)
@@ -268,7 +276,11 @@ def show_application(application_id: str) -> None:
     client_info = job.get("client") or {}
     status_data = application.get("status") or {}
     audit = application.get("auditDetails") or {}
-    cover_letter = application.get("proposalCoverLetter") or application.get("coverLetter") or "(empty)"
+    cover_letter = (
+        application.get("proposalCoverLetter")
+        or application.get("coverLetter")
+        or "(empty)"
+    )
 
     summary = [
         f"[bold]Application ID:[/bold] {application.get('id', '')}",
@@ -328,7 +340,13 @@ def offers(ctx: click.Context) -> None:
     default=None,
     help="Filter by contract offer state.",
 )
-@click.option("--limit", default=20, show_default=True, type=int, help="Maximum offers to display.")
+@click.option(
+    "--limit",
+    default=20,
+    show_default=True,
+    type=int,
+    help="Maximum offers to display.",
+)
 def list_offers(state: str | None, limit: int) -> None:
     """List current offers visible to the authenticated freelancer."""
     client = _get_client()
@@ -366,7 +384,11 @@ def list_offers(state: str | None, limit: int) -> None:
             str(offer.get("state", "Unknown")),
             str(offer.get("type", "Unknown")),
             _offer_client_name(offer),
-            str(offer.get("lastUpdatedDateTime") or offer.get("lastPublishedDateTime") or ""),
+            str(
+                offer.get("lastUpdatedDateTime")
+                or offer.get("lastPublishedDateTime")
+                or ""
+            ),
         )
 
     console.print(table)
