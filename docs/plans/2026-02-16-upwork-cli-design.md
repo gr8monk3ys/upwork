@@ -2,7 +2,7 @@
 
 **Date:** 2026-02-16
 **Author:** Lorenzo Scaturchio
-**Status:** Approved
+**Status:** Historical design draft (some planned features, such as RSS fallback, were not shipped)
 
 ## Overview
 
@@ -43,7 +43,7 @@ upwork/
 - `reset` - Clear all config
 
 ### `upwork jobs`
-- `search <query>` - GraphQL or RSS fallback
+- `search <query>` - GraphQL search
 - `score` - AI-score cached jobs against profile
 - `watch <query>` - Monitor loop with alerts
 - `detail <id>` - Full job info
@@ -83,7 +83,7 @@ upwork/
 | Local storage | SQLite | Simple, no server, portable |
 | Token storage | ~/.config/upwork-cli/ | XDG-compliant |
 | Job alerts | Terminal + Discord webhook | Lightweight, extensible |
-| RSS fallback | feedparser | Works without API key |
+| RSS fallback | feedparser | Planned, not implemented |
 
 ## API Limitations
 
@@ -100,4 +100,4 @@ upwork/
 - anthropic >= 0.40.0
 - pyyaml >= 6.0
 - keyring >= 25.0
-- feedparser >= 6.0
+- feedparser >= 6.0 (planned only)

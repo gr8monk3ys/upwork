@@ -4,10 +4,13 @@ A Python command-line toolkit for managing your Upwork freelancing workflow from
 
 ## Features
 
-- **Job Search** -- Query the Upwork marketplace via GraphQL API (with RSS fallback for unauthenticated use). Filter by budget, job type, and recency.
+- **Job Search** -- Query the Upwork marketplace via GraphQL API with budget, job type, and recency filters.
 - **AI Job Scoring** -- Score job postings (1-10) against your freelancer profile using Anthropic Claude, so you can focus on the best-fit opportunities.
 - **AI Proposal Generation** -- Generate tailored cover letters for specific jobs. Choose tone (professional, casual, technical, enthusiastic) and length (short, medium, long). Refine proposals iteratively with natural-language feedback.
+- **Applications Dashboard** -- List and inspect your submitted applications with proposal status, timestamps, cached cover letters, and related offers.
 - **Job Monitoring** -- Watch for new postings on a schedule with `jobs watch`. Get notified in the terminal or via Discord webhook when high-scoring jobs appear.
+- **Saved Searches** -- Store your recurring queries and run or watch them as a batch with `jobs searches`.
+- **Offer Management** -- Review active offers, inspect rate or budget terms, and withdraw stale offers directly through GraphQL.
 - **Earnings Tracking** -- View earnings summaries (all-time, this month, this week), generate date-range reports, and export to CSV.
 - **Contract Management** -- List active contracts, view details and milestones, submit work for approval.
 - **Messaging** -- List conversations, read message threads, send replies, and find rooms by contract reference.
@@ -27,7 +30,6 @@ A Python command-line toolkit for managing your Upwork freelancing workflow from
 | Local storage | SQLite (jobs, scores, proposals, bookmarks) |
 | Config format | YAML (settings, profile) |
 | Secret storage | [keyring](https://pypi.org/project/keyring/) (system keychain) |
-| RSS fallback | [feedparser](https://pypi.org/project/feedparser/) |
 | Build system | setuptools |
 
 ## Getting Started
@@ -45,15 +47,16 @@ A Python command-line toolkit for managing your Upwork freelancing workflow from
 git clone https://github.com/gr8monk3ys/upwork.git
 cd upwork
 
-# Create a virtual environment and install
+# Preferred: create the locked dev environment with uv
+uv sync --extra test
+
+# Optional: enter the environment for direct commands
+source .venv/bin/activate
+
+# Fallback without uv (when pip is available in your venv)
 python -m venv .venv
 source .venv/bin/activate
-pip install -e .
-
-# Or with uv
-uv venv
-source .venv/bin/activate
-uv pip install -e .
+python -m pip install -e ".[test]"
 ```
 
 After installation the `upwork` command is available on your PATH.
@@ -69,6 +72,10 @@ upwork config profile --file profile.md
 
 # Check your configuration status
 upwork config status
+
+# Inspect or clear keychain-backed secrets
+upwork config secrets status
+upwork config secrets clear anthropic-api-key
 ```
 
 ## Configuration
@@ -94,16 +101,19 @@ Secrets can be provided via environment variables instead of the keychain:
 
 If an environment variable is set, it takes precedence over the keychain value.
 
+During `upwork config setup`, secret prompts do not echo existing values. Press Enter to keep the current secret, or type `clear` to remove the keychain value.
+
 ### Settings Reference
 
-The setup wizard configures these via `settings.yaml`:
+`settings.yaml` stores core CLI settings. The setup wizard writes `client_id` and
+`redirect_uri`; advanced users can also edit watch defaults and saved searches manually:
 
 ```yaml
 client_id: "your-upwork-client-id"
 redirect_uri: "https://localhost:8080/callback"
 default_search_terms:
   - "python developer"
-  - "full stack"
+  - "react native"
 watch_interval_minutes: 5
 min_score_threshold: 7
 ```
@@ -144,6 +154,21 @@ upwork jobs watch "react native" --interval 10 --min-score 8 --notify discord
 
 Press Ctrl+C to stop watching.
 
+### Saved Searches
+
+```bash
+# Save recurring searches
+upwork jobs searches add "python developer"
+upwork jobs searches add "react native"
+upwork jobs searches list
+
+# Run all saved searches once
+upwork jobs searches run
+
+# Continuously watch all saved searches
+upwork jobs searches watch --interval 5
+```
+
 ### Job Details and Bookmarks
 
 ```bash
@@ -177,10 +202,42 @@ upwork propose history
 
 # Show a specific proposal (and copy to clipboard on macOS)
 upwork propose show 3 --copy
+
+# Generate interview prep notes for a saved job
+upwork propose prep <job-id>
+
+# Mark outcomes and learn from winning proposals
+upwork propose mark 3 won
+upwork propose learn
 ```
 
 Available tones: `professional`, `casual`, `technical`, `enthusiastic`
 Available lengths: `short` (~100 words), `medium` (~200 words), `long` (~350 words)
+
+### Applications and Offers
+
+```bash
+# List submitted applications
+upwork applications list
+
+# Include multiple statuses by querying across them
+upwork applications list --status all --sort modified
+
+# Inspect one application and any linked offers
+upwork applications show <application-id>
+
+# List current offers
+upwork offers list
+
+# Filter current offers by state
+upwork offers list --state pending
+
+# Inspect terms and client message for a specific offer
+upwork offers show <offer-id>
+
+# Withdraw an offer
+upwork offers withdraw <offer-id> --reason no-response --message "Closing this out on my side."
+```
 
 ### Earnings
 
@@ -224,6 +281,19 @@ upwork messages send <room-id> "Thanks for the update, I'll have the deliverable
 upwork messages find --contract <reference>
 ```
 
+### Profile Audit and Pipeline
+
+```bash
+# Audit your imported profile for completeness
+upwork config audit
+
+# View and manage your application pipeline
+upwork pipeline view
+upwork pipeline stats
+upwork pipeline move <job-id> interviewing --notes "Client replied"
+upwork pipeline digest --days 7
+```
+
 ## Project Structure
 
 ```
@@ -239,13 +309,18 @@ upwork/
       __init__.py
       scorer.py         # AI job-profile match scoring (1-10)
       drafter.py        # AI proposal generation and refinement
+      auditor.py        # AI profile audit
+      learner.py        # Winning proposal pattern extraction
+      interview_prep.py # Interview preparation notes
     commands/
       __init__.py
-      config.py         # setup, status, profile, reset
+      config.py         # setup, status, profile, reset, audit
+      applications.py  # applications and offers GraphQL workflows
       jobs.py           # search, score, watch, detail, save, saved
-      propose.py        # generate, refine, history, show
+      propose.py        # generate, refine, prep, mark, learn, history, show
       earnings.py       # summary, report, export, contracts
       messages.py       # list, read, send, find
+      pipeline.py       # pipeline dashboard and stage tracking
   tests/
   docs/
     plans/              # Design documents
@@ -266,11 +341,14 @@ Note that Upwork's API does not support:
 ## Development
 
 ```bash
-# Install with test dependencies
-pip install -e ".[test]"
+# Preferred: sync the locked test environment
+uv sync --extra test
 
 # Run tests
-pytest
+uv run pytest -v --tb=short
+
+# Run repository hooks (installed with the test extra)
+uv run pre-commit run --all-files
 ```
 
 ## License
