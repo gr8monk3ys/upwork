@@ -17,7 +17,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest>=7.0", "pytest-mock>=3.10", "pytest-cov>=4.0"]
+test = [
+    "pytest>=7.0",
+    "pytest-mock>=3.10",
+    "pytest-cov>=4.0",
+    "pre-commit>=4.0",
+]
 
 [project.scripts]
 upwork = "upwork_cli.cli:cli"

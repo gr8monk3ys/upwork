@@ -16,19 +16,29 @@ SETTINGS_FILE = CONFIG_DIR / "settings.yaml"
 DB_FILE = CONFIG_DIR / "upwork.db"
 
 KEYRING_SERVICE = "upwork-cli"
+SECRET_ENV_MAP = {
+    "client_secret": "UPWORK_CLIENT_SECRET",
+    "anthropic_api_key": "ANTHROPIC_API_KEY",
+    "discord_webhook_url": "DISCORD_WEBHOOK_URL",
+}
 
 
 def _get_secret(key: str) -> str:
     """Retrieve a secret: env var first, then keyring."""
-    env_map = {
-        "client_secret": "UPWORK_CLIENT_SECRET",
-        "anthropic_api_key": "ANTHROPIC_API_KEY",
-        "discord_webhook_url": "DISCORD_WEBHOOK_URL",
-    }
-    env_val = os.environ.get(env_map.get(key, ""), "")
+    env_val = os.environ.get(SECRET_ENV_MAP.get(key, ""), "")
     if env_val:
         return env_val
     return keyring.get_password(KEYRING_SERVICE, key) or ""
+
+
+def _get_secret_source(key: str) -> str:
+    """Describe where a secret currently resolves from."""
+    env_name = SECRET_ENV_MAP.get(key, "")
+    if env_name and os.environ.get(env_name):
+        return f"env:{env_name}"
+    if keyring.get_password(KEYRING_SERVICE, key):
+        return "keyring"
+    return ""
 
 
 def _set_secret(key: str, value: str) -> None:
@@ -142,7 +152,10 @@ class Profile:
         if self.hourly_rate:
             parts.append(f"Rate: {self.hourly_rate}")
         if self.portfolio:
-            items = [f"  - {p.get('name', 'Untitled')}: {p.get('description', '')}" for p in self.portfolio]
+            items = [
+                f"  - {p.get('name', 'Untitled')}: {p.get('description', '')}"
+                for p in self.portfolio
+            ]
             parts.append("Portfolio:\n" + "\n".join(items))
         return "\n".join(parts)
 
@@ -165,19 +178,19 @@ def load_auth() -> Optional[AuthToken]:
 
 def save_settings(
     settings: Settings,
-    client_secret: str = "",
-    anthropic_api_key: str = "",
-    discord_webhook_url: str = "",
+    client_secret: Optional[str] = None,
+    anthropic_api_key: Optional[str] = None,
+    discord_webhook_url: Optional[str] = None,
 ) -> None:
     """Save settings to YAML and secrets to keyring."""
     ensure_config_dir()
     SETTINGS_FILE.write_text(yaml.dump(settings.to_dict(), default_flow_style=False))
     SETTINGS_FILE.chmod(0o600)
-    if client_secret:
+    if client_secret is not None:
         _set_secret("client_secret", client_secret)
-    if anthropic_api_key:
+    if anthropic_api_key is not None:
         _set_secret("anthropic_api_key", anthropic_api_key)
-    if discord_webhook_url:
+    if discord_webhook_url is not None:
         _set_secret("discord_webhook_url", discord_webhook_url)
 
 
@@ -200,7 +213,9 @@ def load_settings() -> Settings:
     settings = Settings.from_dict(data)
 
     if migrated:
-        SETTINGS_FILE.write_text(yaml.dump(settings.to_dict(), default_flow_style=False))
+        SETTINGS_FILE.write_text(
+            yaml.dump(settings.to_dict(), default_flow_style=False)
+        )
         SETTINGS_FILE.chmod(0o600)
 
     return settings

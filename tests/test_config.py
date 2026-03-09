@@ -1,11 +1,5 @@
 """Tests for configuration dataclasses and persistence in upwork_cli.config."""
 
-import json
-import os
-
-import pytest
-import yaml
-
 from upwork_cli.config import (
     AuthToken,
     Settings,
@@ -17,6 +11,7 @@ from upwork_cli.config import (
     save_profile,
     load_profile,
     _get_secret,
+    _get_secret_source,
     _set_secret,
 )
 
@@ -55,7 +50,9 @@ class TestAuthToken:
 
 class TestSettings:
     def test_roundtrip(self):
-        s = Settings(client_id="cid", redirect_uri="http://localhost", watch_interval_minutes=10)
+        s = Settings(
+            client_id="cid", redirect_uri="http://localhost", watch_interval_minutes=10
+        )
         d = s.to_dict()
         restored = Settings.from_dict(d)
         assert restored.client_id == "cid"
@@ -78,6 +75,20 @@ class TestSettings:
         s = load_settings()
         assert s.client_id == ""
 
+    def test_save_settings_keeps_existing_secret_when_none(
+        self, isolated_config, mock_keyring
+    ):
+        _set_secret("anthropic_api_key", "sk-existing")
+        save_settings(Settings(client_id="test-id"), anthropic_api_key=None)
+        assert _get_secret("anthropic_api_key") == "sk-existing"
+
+    def test_save_settings_clears_secret_with_empty_string(
+        self, isolated_config, mock_keyring
+    ):
+        _set_secret("anthropic_api_key", "sk-existing")
+        save_settings(Settings(client_id="test-id"), anthropic_api_key="")
+        assert _get_secret("anthropic_api_key") == ""
+
 
 class TestProfile:
     def test_roundtrip(self):
@@ -96,7 +107,9 @@ class TestProfile:
         assert loaded.skills == ["Go"]
 
     def test_summary_output(self):
-        p = Profile(title="Dev", overview="Overview.", skills=["A", "B"], hourly_rate="$50")
+        p = Profile(
+            title="Dev", overview="Overview.", skills=["A", "B"], hourly_rate="$50"
+        )
         s = p.summary()
         assert "Title: Dev" in s
         assert "Skills: A, B" in s
@@ -111,3 +124,11 @@ class TestKeyringSecretIsolation:
         _set_secret("anthropic_api_key", "from-keyring")
         monkeypatch.setenv("ANTHROPIC_API_KEY", "from-env")
         assert _get_secret("anthropic_api_key") == "from-env"
+
+    def test_get_secret_source_keyring(self, mock_keyring):
+        _set_secret("anthropic_api_key", "from-keyring")
+        assert _get_secret_source("anthropic_api_key") == "keyring"
+
+    def test_get_secret_source_env(self, monkeypatch, mock_keyring):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "from-env")
+        assert _get_secret_source("anthropic_api_key") == "env:ANTHROPIC_API_KEY"

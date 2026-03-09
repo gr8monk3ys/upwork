@@ -14,10 +14,12 @@ from rich.table import Table
 from upwork_cli.client import UpworkClient
 from upwork_cli.config import (
     AUTH_FILE,
+    DB_FILE,
     PROFILE_FILE,
     SETTINGS_FILE,
     Profile,
-    Settings,
+    SECRET_ENV_MAP,
+    _get_secret_source,
     _set_secret,
     ensure_config_dir,
     load_auth,
@@ -30,10 +32,23 @@ from upwork_cli.db import init_db
 
 console = Console()
 
+SECRET_LABELS = {
+    "client_secret": "Client Secret",
+    "anthropic_api_key": "Anthropic API Key",
+    "discord_webhook_url": "Discord Webhook URL",
+}
+
+SECRET_CLI_NAMES = {
+    "client-secret": "client_secret",
+    "anthropic-api-key": "anthropic_api_key",
+    "discord-webhook": "discord_webhook_url",
+}
+
 
 # ---------------------------------------------------------------------------
 # Markdown profile parser
 # ---------------------------------------------------------------------------
+
 
 def _parse_markdown_profile(text: str) -> dict:
     """Parse a markdown file with ## headings into profile fields.
@@ -117,7 +132,9 @@ def _parse_markdown_profile(text: str) -> dict:
             if rate_match:
                 profile_data["hourly_rate"] = rate_match.group(0)
             else:
-                profile_data["hourly_rate"] = re.sub(r"\s*---+\s*$", "", rate_text).strip()
+                profile_data["hourly_rate"] = re.sub(
+                    r"\s*---+\s*$", "", rate_text
+                ).strip()
             break
 
     # Portfolio
@@ -137,7 +154,10 @@ def _parse_markdown_profile(text: str) -> dict:
                 if sub_match:
                     if current_name is not None:
                         portfolio.append(
-                            {"name": current_name, "description": "\n".join(current_desc_lines).strip()}
+                            {
+                                "name": current_name,
+                                "description": "\n".join(current_desc_lines).strip(),
+                            }
                         )
                     current_name = sub_match.group(1).strip()
                     current_desc_lines = []
@@ -147,7 +167,10 @@ def _parse_markdown_profile(text: str) -> dict:
 
             if current_name is not None:
                 portfolio.append(
-                    {"name": current_name, "description": "\n".join(current_desc_lines).strip()}
+                    {
+                        "name": current_name,
+                        "description": "\n".join(current_desc_lines).strip(),
+                    }
                 )
 
             if portfolio:
@@ -181,6 +204,35 @@ def _parse_markdown_profile(text: str) -> dict:
     return profile_data
 
 
+def _describe_secret_source(secret_key: str) -> str:
+    """Return a human-readable description of the active secret source."""
+    source = _get_secret_source(secret_key)
+    if source.startswith("env:"):
+        env_name = source.split(":", 1)[1]
+        return f"environment variable ({env_name})"
+    if source == "keyring":
+        return "system keychain"
+    return "not set"
+
+
+def _prompt_secret_value(secret_key: str, hide_input: bool = True) -> str | None:
+    """Prompt for a secret without echoing the current value back to the user."""
+    label = SECRET_LABELS[secret_key]
+    source_label = _describe_secret_source(secret_key)
+    console.print(
+        f"[dim]{label}: currently {source_label}. "
+        "Press Enter to keep it, or type 'clear' to remove the keychain value.[/dim]"
+    )
+    value = click.prompt(
+        label, default="", show_default=False, hide_input=hide_input
+    ).strip()
+    if not value:
+        return None
+    if value.lower() == "clear":
+        return ""
+    return value
+
+
 # ---------------------------------------------------------------------------
 # Click command group
 # ---------------------------------------------------------------------------
@@ -209,25 +261,16 @@ def setup():
     # --- Upwork API credentials ---
     console.print("\n[bold cyan]Upwork API Credentials[/bold cyan]")
     settings.client_id = click.prompt("Client ID", default=settings.client_id or "")
-    client_secret = click.prompt(
-        "Client Secret", default=settings.client_secret or "", hide_input=True
-    )
+    client_secret = _prompt_secret_value("client_secret", hide_input=True)
     settings.redirect_uri = click.prompt(
-        "Redirect URI", default=settings.redirect_uri or "https://localhost:8080/callback"
+        "Redirect URI",
+        default=settings.redirect_uri or "https://localhost:8080/callback",
     )
 
     # --- Optional integrations ---
     console.print("\n[bold cyan]Optional Integrations[/bold cyan]")
-    anthropic_key = click.prompt(
-        "Anthropic API Key (for AI features)",
-        default=settings.anthropic_api_key or "",
-        hide_input=True,
-    )
-
-    discord_url = click.prompt(
-        "Discord Webhook URL (for notifications)",
-        default=settings.discord_webhook_url or "",
-    )
+    anthropic_key = _prompt_secret_value("anthropic_api_key", hide_input=True)
+    discord_url = _prompt_secret_value("discord_webhook_url", hide_input=False)
 
     save_settings(
         settings,
@@ -235,7 +278,9 @@ def setup():
         anthropic_api_key=anthropic_key,
         discord_webhook_url=discord_url,
     )
-    console.print("\n[green]Settings saved (secrets stored in system keychain).[/green]")
+    console.print(
+        "\n[green]Settings saved (secrets stored in system keychain).[/green]"
+    )
 
     # --- OAuth2 flow ---
     console.print("\n[bold cyan]Upwork OAuth2 Authorization[/bold cyan]")
@@ -243,20 +288,30 @@ def setup():
         client = UpworkClient(settings=settings)
         auth_url = client.get_authorization_url()
 
-        console.print(f"\nOpening authorization URL in your browser...\n[link={auth_url}]{auth_url}[/link]")
+        console.print(
+            f"\nOpening authorization URL in your browser...\n[link={auth_url}]{auth_url}[/link]"
+        )
         webbrowser.open(auth_url)
 
         callback_url = click.prompt(
             "\nAfter authorizing, paste the full callback URL here"
         )
-        token = client.complete_auth(callback_url)
+        client.complete_auth(callback_url)
 
         console.print("\n[green bold]Authentication successful![/green bold]")
 
         try:
             user_info = client.get_user_info()
-            user = user_info.get("user", user_info) if isinstance(user_info, dict) else user_info
-            name = user.get("first_name", "") + " " + user.get("last_name", "") if isinstance(user, dict) else str(user)
+            user = (
+                user_info.get("user", user_info)
+                if isinstance(user_info, dict)
+                else user_info
+            )
+            name = (
+                user.get("first_name", "") + " " + user.get("last_name", "")
+                if isinstance(user, dict)
+                else str(user)
+            )
             console.print(f"Logged in as: [bold]{name.strip()}[/bold]")
         except Exception:
             console.print("Authenticated (could not fetch user details).")
@@ -291,7 +346,10 @@ def status():
             if expiry > datetime.now():
                 table.add_row("Token expiry", expiry.strftime("%Y-%m-%d %H:%M:%S"))
             else:
-                table.add_row("Token expiry", f"[red]Expired ({expiry.strftime('%Y-%m-%d %H:%M:%S')})[/red]")
+                table.add_row(
+                    "Token expiry",
+                    f"[red]Expired ({expiry.strftime('%Y-%m-%d %H:%M:%S')})[/red]",
+                )
         else:
             table.add_row("Token expiry", "Unknown")
     else:
@@ -300,7 +358,11 @@ def status():
 
     # Client ID (masked)
     if settings.client_id:
-        masked = settings.client_id[:4] + "..." + settings.client_id[-4:] if len(settings.client_id) > 8 else "****"
+        masked = (
+            settings.client_id[:4] + "..." + settings.client_id[-4:]
+            if len(settings.client_id) > 8
+            else "****"
+        )
         table.add_row("Client ID", masked)
     else:
         table.add_row("Client ID", "[red]Not set[/red]")
@@ -323,16 +385,26 @@ def status():
     else:
         table.add_row("Profile", "[yellow]Not loaded[/yellow]")
 
-    console.print(Panel(table, title="[bold]Configuration Status[/bold]", border_style="blue"))
+    table.add_row("Saved searches", str(len(settings.default_search_terms or [])))
+
+    console.print(
+        Panel(table, title="[bold]Configuration Status[/bold]", border_style="blue")
+    )
 
     # If authenticated, try to show user info
     if auth:
         try:
             client = UpworkClient(settings=settings, token=auth)
             user_info = client.get_user_info()
-            user = user_info.get("user", user_info) if isinstance(user_info, dict) else user_info
+            user = (
+                user_info.get("user", user_info)
+                if isinstance(user_info, dict)
+                else user_info
+            )
             if isinstance(user, dict):
-                name = (user.get("first_name", "") + " " + user.get("last_name", "")).strip()
+                name = (
+                    user.get("first_name", "") + " " + user.get("last_name", "")
+                ).strip()
                 email = user.get("email", "")
                 info_parts = []
                 if name:
@@ -340,9 +412,77 @@ def status():
                 if email:
                     info_parts.append(f"Email: {email}")
                 if info_parts:
-                    console.print(Panel("\n".join(info_parts), title="[bold]User Info[/bold]", border_style="green"))
+                    console.print(
+                        Panel(
+                            "\n".join(info_parts),
+                            title="[bold]User Info[/bold]",
+                            border_style="green",
+                        )
+                    )
         except Exception:
             pass
+
+
+@config.group("secrets", invoke_without_command=True)
+@click.pass_context
+def secrets(ctx: click.Context) -> None:
+    """Inspect or clear secrets stored outside settings.yaml."""
+    if ctx.invoked_subcommand is None:
+        ctx.invoke(secret_status)
+
+
+@secrets.command("status")
+def secret_status() -> None:
+    """Show whether each secret comes from env, keyring, or nowhere."""
+    table = Table(title="Secret Status", show_lines=True)
+    table.add_column("Secret", style="bold cyan")
+    table.add_column("Status")
+    table.add_column("Source", style="magenta")
+
+    for secret_key, label in SECRET_LABELS.items():
+        source = _get_secret_source(secret_key)
+        env_name = SECRET_ENV_MAP.get(secret_key, "")
+        if source.startswith("env:"):
+            status = "[green]Set[/green]"
+            source_label = env_name
+        elif source == "keyring":
+            status = "[green]Set[/green]"
+            source_label = "keyring"
+        else:
+            status = "[yellow]Not set[/yellow]"
+            source_label = "-"
+        table.add_row(label, status, source_label)
+
+    console.print(table)
+
+
+@secrets.command("clear")
+@click.argument(
+    "name", type=click.Choice(list(SECRET_CLI_NAMES.keys()), case_sensitive=False)
+)
+@click.option("--yes", is_flag=True, help="Skip the confirmation prompt.")
+def clear_secret(name: str, yes: bool) -> None:
+    """Clear a single keyring-backed secret."""
+    secret_key = SECRET_CLI_NAMES[name.lower()]
+    label = SECRET_LABELS[secret_key]
+    source = _get_secret_source(secret_key)
+    env_name = SECRET_ENV_MAP.get(secret_key, "")
+
+    if not yes and not click.confirm(f"Clear {label} from the system keychain?"):
+        console.print("[yellow]Aborted.[/yellow]")
+        return
+
+    _set_secret(secret_key, "")
+
+    if source.startswith("env:"):
+        console.print(
+            f"[yellow]{label} is still provided by {env_name}. "
+            "Unset the environment variable if you want it fully removed.[/yellow]"
+        )
+    elif source == "keyring":
+        console.print(f"[green]Cleared {label} from the system keychain.[/green]")
+    else:
+        console.print(f"[yellow]{label} was not set in the system keychain.[/yellow]")
 
 
 # ---------------------------------------------------------------------------
@@ -351,7 +491,13 @@ def status():
 
 
 @config.command()
-@click.option("--file", "file_path", type=click.Path(exists=True), default=None, help="Path to a YAML or Markdown profile file.")
+@click.option(
+    "--file",
+    "file_path",
+    type=click.Path(exists=True),
+    default=None,
+    help="Path to a YAML or Markdown profile file.",
+)
 def profile(file_path: str | None):
     """Import your freelancer profile."""
     if file_path:
@@ -363,7 +509,9 @@ def profile(file_path: str | None):
             text = path.read_text(encoding="utf-8")
             data = _parse_markdown_profile(text)
             if not data:
-                console.print("[red]Could not extract profile fields from the Markdown file.[/red]")
+                console.print(
+                    "[red]Could not extract profile fields from the Markdown file.[/red]"
+                )
                 raise SystemExit(1)
             prof = Profile(
                 title=data.get("title", ""),
@@ -377,11 +525,15 @@ def profile(file_path: str | None):
             console.print(f"Loading YAML profile from [bold]{path}[/bold]...")
             raw = yaml.safe_load(path.read_text(encoding="utf-8"))
             if not isinstance(raw, dict):
-                console.print("[red]YAML file must contain a mapping at the top level.[/red]")
+                console.print(
+                    "[red]YAML file must contain a mapping at the top level.[/red]"
+                )
                 raise SystemExit(1)
             prof = Profile.from_dict(raw)
         else:
-            console.print(f"[red]Unsupported file type: {ext}. Use .md or .yaml/.yml[/red]")
+            console.print(
+                f"[red]Unsupported file type: {ext}. Use .md or .yaml/.yml[/red]"
+            )
             raise SystemExit(1)
     else:
         # Interactive prompts
@@ -400,7 +552,9 @@ def profile(file_path: str | None):
 
     save_profile(prof)
     console.print("\n[green]Profile saved![/green]\n")
-    console.print(Panel(prof.summary(), title="[bold]Profile Summary[/bold]", border_style="blue"))
+    console.print(
+        Panel(prof.summary(), title="[bold]Profile Summary[/bold]", border_style="blue")
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -416,7 +570,8 @@ def reset():
         return
 
     deleted: list[str] = []
-    for filepath in (AUTH_FILE, SETTINGS_FILE, PROFILE_FILE):
+    style_guide_file = ensure_config_dir() / "style_guide.txt"
+    for filepath in (AUTH_FILE, SETTINGS_FILE, PROFILE_FILE, DB_FILE, style_guide_file):
         if filepath.exists():
             filepath.unlink()
             deleted.append(filepath.name)
@@ -430,7 +585,9 @@ def reset():
     else:
         console.print("[yellow]No configuration files found to delete.[/yellow]")
 
-    console.print("[green]Configuration reset complete (keychain secrets cleared).[/green]")
+    console.print(
+        "[green]Configuration reset complete (keychain secrets cleared).[/green]"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -452,7 +609,9 @@ def _build_audit_summary(profile: Profile) -> str:
         parts.append("Overview: NOT SET")
 
     if profile.skills:
-        parts.append(f"Skills ({len(profile.skills)} listed): {', '.join(profile.skills)}")
+        parts.append(
+            f"Skills ({len(profile.skills)} listed): {', '.join(profile.skills)}"
+        )
     else:
         parts.append("Skills: NONE")
 
