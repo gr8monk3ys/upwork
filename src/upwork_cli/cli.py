@@ -23,6 +23,7 @@ def cli():
 
 def register_commands():
     """Register all command groups."""
+    from upwork_cli.commands.applications import applications, offers
     from upwork_cli.commands.config import config
     from upwork_cli.commands.jobs import jobs
     from upwork_cli.commands.propose import propose
@@ -33,6 +34,8 @@ def register_commands():
     cli.add_command(config)
     cli.add_command(jobs)
     cli.add_command(propose)
+    cli.add_command(applications)
+    cli.add_command(offers)
     cli.add_command(earnings)
     cli.add_command(contracts)
     cli.add_command(messages)
