@@ -197,6 +197,9 @@ def _display_jobs_table(jobs: list[JobPosting], title: str = "Search Results") -
 
 def _send_discord_notification(webhook_url: str, message: str) -> None:
     """Send a notification to a Discord webhook."""
+    if not webhook_url.startswith("https://"):
+        console.print("[red]Discord webhook URL must use https://[/red]")
+        return
     payload = json.dumps({"content": message}).encode("utf-8")
     req = urllib.request.Request(
         webhook_url,
@@ -205,6 +208,7 @@ def _send_discord_notification(webhook_url: str, message: str) -> None:
         method="POST",
     )
     try:
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
         urllib.request.urlopen(req)
     except Exception as exc:
         console.print(f"[red]Discord notification failed: {exc}[/red]")
