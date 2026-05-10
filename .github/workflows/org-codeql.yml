@@ -17,3 +17,4 @@ jobs:
     uses: gr8monk3ys/github/.github/workflows/reusable-codeql.yml@cf21251fb08ecd80847f10a060b3599a7c518d4b
     with:
       languages: python
+      upload: never
