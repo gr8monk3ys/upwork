@@ -1,5 +1,9 @@
 # Upwork CLI
 
+<p align="center">
+  <img src="docs/assets/hero.png" alt="upwork preview" width="640">
+</p>
+
 A Python command-line toolkit for managing your Upwork freelancing workflow from the terminal. Search jobs, generate AI-powered proposals with Claude, track earnings, manage contracts, and handle messages -- all without leaving your shell.
 
 ## Features
