@@ -12,6 +12,10 @@ permissions:
   issues: write
   pull-requests: write
 
+concurrency:
+  group: org-release-please-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   release-please:
     uses: gr8monk3ys/github/.github/workflows/reusable-release-please.yml@88552ca2cc9623b35675170019ecf2db9ea458ea

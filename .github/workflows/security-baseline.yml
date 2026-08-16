@@ -7,6 +7,10 @@ on:
 
 permissions: read-all
 
+concurrency:
+  group: security-baseline-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   security-baseline:
     runs-on: ubuntu-latest

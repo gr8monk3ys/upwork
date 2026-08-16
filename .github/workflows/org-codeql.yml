@@ -10,6 +10,10 @@ permissions:
   contents: read
   security-events: write
 
+concurrency:
+  group: org-codeql-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   codeql:
     uses: gr8monk3ys/github/.github/workflows/reusable-codeql.yml@cf21251fb08ecd80847f10a060b3599a7c518d4b
