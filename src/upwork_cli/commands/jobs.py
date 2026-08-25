@@ -256,6 +256,7 @@ def _score_alert_jobs(
     has_scoring: bool,
     profile_summary: str,
     api_key: str,
+    model: str = "",
 ) -> list[dict]:
     """Score new jobs when possible and return only alert-worthy items."""
     if not has_scoring:
@@ -269,10 +270,17 @@ def _score_alert_jobs(
         }
         for job in new_jobs
     ]
-    scored = score_jobs_batch(batch, profile_summary, api_key)
+    scored = score_jobs_batch(batch, profile_summary, api_key, model=model or None)
+    # Failed scores (score=None) stay unsaved so the job is re-scored next cycle
+    # instead of being permanently buried at 0.
     for item in scored:
-        save_score(item["id"], item["score"], item.get("reasoning", ""))
-    return [item for item in scored if item["score"] >= min_score]
+        if item["score"] is not None:
+            save_score(item["id"], item["score"], item.get("reasoning", ""))
+    return [
+        item
+        for item in scored
+        if item["score"] is not None and item["score"] >= min_score
+    ]
 
 
 def _notify_hot_jobs(hot_jobs: list[dict], notify: str, webhook_url: str) -> None:
@@ -323,6 +331,7 @@ def _run_search_cycle(
         has_scoring=has_scoring,
         profile_summary=profile_summary,
         api_key=settings.anthropic_api_key,
+        model=settings.ai_model,
     )
     _notify_hot_jobs(hot_jobs, notify, settings.discord_webhook_url)
 
@@ -693,11 +702,15 @@ def score(ctx):
             }
         )
 
-    scored = score_jobs_batch(batch, profile_summary, settings.anthropic_api_key)
+    scored = score_jobs_batch(
+        batch, profile_summary, settings.anthropic_api_key, model=settings.ai_model
+    )
 
-    # Save scores to the database
+    # Save scores to the database; failed jobs (score=None) stay unscored so
+    # the next run retries them instead of caching a bogus 0.
     for item in scored:
-        save_score(item["id"], item["score"], item.get("reasoning", ""))
+        if item["score"] is not None:
+            save_score(item["id"], item["score"], item.get("reasoning", ""))
 
     # Display scored results
     table = Table(title="Job Scores", show_lines=True)
@@ -708,18 +721,25 @@ def score(ctx):
 
     for item in scored:
         sc = item["score"]
-        color = _score_color(sc)
         # Look up budget from the original row
         original = next((r for r in unscored if r["id"] == item["id"]), {})
         budget = _format_budget(
             original.get("budget_amount"), original.get("budget_currency", "USD")
         )
 
+        if sc is None:
+            score_cell = "[red]—[/red]"
+            reasoning = f"[red]{item.get('error', 'Scoring failed')}[/red]"
+        else:
+            color = _score_color(sc)
+            score_cell = f"[{color}]{sc}[/{color}]"
+            reasoning = item.get("reasoning", "")
+
         table.add_row(
-            f"[{color}]{sc}[/{color}]",
+            score_cell,
             _truncate(item.get("title", ""), 50),
             budget,
-            item.get("reasoning", ""),
+            reasoning,
         )
 
     console.print(table)

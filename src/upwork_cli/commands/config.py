@@ -658,7 +658,13 @@ def audit():
     from upwork_cli.ai.auditor import audit_profile
 
     with console.status("[bold green]Auditing your profile..."):
-        result = audit_profile(profile_text, settings.anthropic_api_key)
+        try:
+            result = audit_profile(
+                profile_text, settings.anthropic_api_key, model=settings.ai_model
+            )
+        except RuntimeError as exc:
+            console.print(f"[red]Profile audit failed:[/red] {exc}")
+            raise SystemExit(1)
 
     total = result.get("total_score", 0)
 

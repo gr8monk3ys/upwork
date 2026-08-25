@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import anthropic
+from typing import Optional
 
-from upwork_cli.ai.utils import DEFAULT_MODEL
+from upwork_cli.ai.utils import complete
 
 VALID_TONES = ("professional", "casual", "technical", "enthusiastic")
 VALID_LENGTHS = ("short", "medium", "long")
@@ -70,6 +70,7 @@ def draft_proposal(
     tone: str = "professional",
     length: str = "medium",
     style_guide: str = "",
+    model: Optional[str] = None,
 ) -> str:
     """Generate a tailored Upwork proposal for a specific job.
 
@@ -79,13 +80,15 @@ def draft_proposal(
         api_key: Anthropic API key.
         tone: One of "professional", "casual", "technical", "enthusiastic".
         length: One of "short" (~100 words), "medium" (~200 words), "long" (~350 words).
+        style_guide: Optional style guide extracted from past winning proposals.
+        model: Claude model ID; defaults to the configured/default model.
 
     Returns:
         The generated proposal text.
 
     Raises:
         ValueError: If tone or length is not a valid option.
-        anthropic.APIError: If the API call fails after handling.
+        AIError: If the API call fails.
     """
     if tone not in VALID_TONES:
         raise ValueError(
@@ -96,36 +99,26 @@ def draft_proposal(
             f"Invalid length '{length}'. Must be one of: {', '.join(VALID_LENGTHS)}"
         )
 
-    client = anthropic.Anthropic(api_key=api_key)
-
     user_message = (
         f"Write a proposal for this Upwork job.\n\n"
         f"--- JOB DETAILS ---\n{job_summary}\n\n"
         f"--- MY PROFILE ---\n{profile_summary}"
     )
 
-    try:
-        response = client.messages.create(
-            model=DEFAULT_MODEL,
-            max_tokens=1024,
-            system=_build_system_prompt(tone, length, style_guide),
-            messages=[{"role": "user", "content": user_message}],
-        )
-        return response.content[0].text
-    except anthropic.AuthenticationError:
-        raise RuntimeError("Invalid Anthropic API key. Check your key in settings.")
-    except anthropic.RateLimitError:
-        raise RuntimeError(
-            "Anthropic rate limit reached. Please wait a moment and try again."
-        )
-    except anthropic.APIError as exc:
-        raise RuntimeError(f"Anthropic API error: {exc}") from exc
+    return complete(
+        user_message,
+        api_key,
+        model=model,
+        system=_build_system_prompt(tone, length, style_guide),
+        max_tokens=2048,
+    )
 
 
 def refine_proposal(
     current_draft: str,
     feedback: str,
     api_key: str,
+    model: Optional[str] = None,
 ) -> str:
     """Refine an existing proposal based on user feedback.
 
@@ -134,12 +127,14 @@ def refine_proposal(
         feedback: User instructions on what to change (e.g., "make it shorter",
                   "emphasize Python experience", "add a question about their timeline").
         api_key: Anthropic API key.
+        model: Claude model ID; defaults to the configured/default model.
 
     Returns:
         The refined proposal text.
-    """
-    client = anthropic.Anthropic(api_key=api_key)
 
+    Raises:
+        AIError: If the API call fails.
+    """
     system_prompt = (
         "You are an expert Upwork freelancer refining a proposal draft. "
         "Apply the user's feedback while preserving the overall structure and strengths "
@@ -153,19 +148,10 @@ def refine_proposal(
         f"Please revise the proposal based on the feedback above."
     )
 
-    try:
-        response = client.messages.create(
-            model=DEFAULT_MODEL,
-            max_tokens=1024,
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_message}],
-        )
-        return response.content[0].text
-    except anthropic.AuthenticationError:
-        raise RuntimeError("Invalid Anthropic API key. Check your key in settings.")
-    except anthropic.RateLimitError:
-        raise RuntimeError(
-            "Anthropic rate limit reached. Please wait a moment and try again."
-        )
-    except anthropic.APIError as exc:
-        raise RuntimeError(f"Anthropic API error: {exc}") from exc
+    return complete(
+        user_message,
+        api_key,
+        model=model,
+        system=system_prompt,
+        max_tokens=2048,
+    )

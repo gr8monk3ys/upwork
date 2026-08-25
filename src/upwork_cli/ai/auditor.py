@@ -1,11 +1,9 @@
 """AI-powered profile completeness audit using Claude."""
 
 import json
-from typing import Any
+from typing import Any, Optional
 
-from anthropic import Anthropic
-
-from upwork_cli.ai.utils import DEFAULT_MODEL, strip_json_fences
+from upwork_cli.ai.utils import AIError, complete, strip_json_fences
 
 AUDIT_PROMPT = """\
 You are an expert Upwork profile consultant. Evaluate the following freelancer \
@@ -43,52 +41,36 @@ Respond with ONLY valid JSON in this exact format (no markdown fencing):
 }}
 """
 
-FALLBACK_RESULT: dict[str, Any] = {
-    "total_score": 0,
-    "breakdown": [
-        {"area": "Title", "score": 0, "feedback": "Could not analyze."},
-        {"area": "Overview", "score": 0, "feedback": "Could not analyze."},
-        {"area": "Skills", "score": 0, "feedback": "Could not analyze."},
-        {"area": "Portfolio", "score": 0, "feedback": "Could not analyze."},
-        {"area": "Rate & Experience", "score": 0, "feedback": "Could not analyze."},
-    ],
-    "top_3_improvements": [
-        "Complete your profile to enable audit.",
-    ],
-}
 
-
-def audit_profile(profile_text: str, api_key: str) -> dict[str, Any]:
+def audit_profile(
+    profile_text: str, api_key: str, model: Optional[str] = None
+) -> dict[str, Any]:
     """Audit a freelancer profile for completeness and effectiveness.
 
     Args:
         profile_text: Detailed profile text (title, overview, skills, portfolio, etc.).
         api_key: Anthropic API key.
+        model: Claude model ID; defaults to the configured/default model.
 
     Returns:
         Dict with ``total_score``, ``breakdown`` (per-area), and ``top_3_improvements``.
-        Returns a fallback dict on failure.
+
+    Raises:
+        AIError: If the API call fails or the response cannot be parsed.
     """
+    raw = complete(
+        AUDIT_PROMPT.format(profile_text=profile_text),
+        api_key,
+        model=model,
+        max_tokens=2048,
+    )
+
     try:
-        client = Anthropic(api_key=api_key)
-        message = client.messages.create(
-            model=DEFAULT_MODEL,
-            max_tokens=1024,
-            messages=[
-                {
-                    "role": "user",
-                    "content": AUDIT_PROMPT.format(profile_text=profile_text),
-                }
-            ],
-        )
-
-        raw = strip_json_fences(message.content[0].text.strip())
-        result = json.loads(raw)
-
-        # Validate and clamp total_score
+        result = json.loads(strip_json_fences(raw.strip()))
         result["total_score"] = max(0, min(100, int(result.get("total_score", 0))))
+    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+        raise AIError(f"Could not parse audit response: {exc}") from exc
+    if not isinstance(result.get("breakdown"), list):
+        raise AIError("Audit response missing 'breakdown' list.")
 
-        return result
-
-    except Exception:
-        return dict(FALLBACK_RESULT)
+    return result

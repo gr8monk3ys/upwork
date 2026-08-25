@@ -1,8 +1,8 @@
 """AI-powered interview preparation for Upwork jobs."""
 
-from anthropic import Anthropic
+from typing import Optional
 
-from upwork_cli.ai.utils import DEFAULT_MODEL
+from upwork_cli.ai.utils import complete
 
 PREP_PROMPT = """\
 You are an expert Upwork freelancer coach. Generate interview preparation notes \
@@ -32,33 +32,26 @@ def generate_interview_prep(
     profile_summary: str,
     api_key: str,
     client_research: str = "",
+    model: Optional[str] = None,
 ) -> str:
     """Generate interview prep notes for a job.
 
     Returns markdown-formatted prep notes.
-    Raises RuntimeError on failure.
+
+    Raises:
+        AIError: If the API call fails.
     """
     research_section = (
         f"**Client Research:**\n{client_research}" if client_research else ""
     )
 
-    try:
-        client = Anthropic(api_key=api_key)
-        message = client.messages.create(
-            model=DEFAULT_MODEL,
-            max_tokens=1500,
-            messages=[
-                {
-                    "role": "user",
-                    "content": PREP_PROMPT.format(
-                        job_summary=job_summary,
-                        profile_summary=profile_summary,
-                        client_research_section=research_section,
-                    ),
-                }
-            ],
-        )
-        return message.content[0].text
-
-    except Exception as exc:
-        raise RuntimeError(f"Interview prep failed: {exc}") from exc
+    return complete(
+        PREP_PROMPT.format(
+            job_summary=job_summary,
+            profile_summary=profile_summary,
+            client_research_section=research_section,
+        ),
+        api_key,
+        model=model,
+        max_tokens=3000,
+    )

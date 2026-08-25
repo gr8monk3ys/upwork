@@ -1,8 +1,8 @@
 """Extract winning patterns from past proposals to build a style guide."""
 
-from anthropic import Anthropic
+from typing import Optional
 
-from upwork_cli.ai.utils import DEFAULT_MODEL
+from upwork_cli.ai.utils import complete
 
 LEARNER_PROMPT = """\
 You are an expert Upwork proposal analyst. Analyze these winning proposals and \
@@ -23,18 +23,22 @@ generating future proposals (use imperative voice).
 """
 
 
-def extract_winning_patterns(proposals: list[dict], api_key: str) -> str:
+def extract_winning_patterns(
+    proposals: list[dict], api_key: str, model: Optional[str] = None
+) -> str:
     """Analyze winning proposals and extract a style guide.
 
     Args:
         proposals: List of proposal dicts with 'content', 'job_title', 'tone' keys.
         api_key: Anthropic API key.
+        model: Claude model ID; defaults to the configured/default model.
 
     Returns:
         Style guide string (~300 words).
 
     Raises:
-        RuntimeError on failure.
+        RuntimeError: If there are no proposals to analyze.
+        AIError: If the API call fails.
     """
     if not proposals:
         raise RuntimeError("No winning proposals to analyze.")
@@ -48,19 +52,9 @@ def extract_winning_patterns(proposals: list[dict], api_key: str) -> str:
 
     proposals_text = "\n\n".join(parts)
 
-    try:
-        client = Anthropic(api_key=api_key)
-        message = client.messages.create(
-            model=DEFAULT_MODEL,
-            max_tokens=1024,
-            messages=[
-                {
-                    "role": "user",
-                    "content": LEARNER_PROMPT.format(proposals_text=proposals_text),
-                }
-            ],
-        )
-        return message.content[0].text
-
-    except Exception as exc:
-        raise RuntimeError(f"Pattern extraction failed: {exc}") from exc
+    return complete(
+        LEARNER_PROMPT.format(proposals_text=proposals_text),
+        api_key,
+        model=model,
+        max_tokens=2048,
+    )
