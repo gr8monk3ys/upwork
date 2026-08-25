@@ -6,7 +6,7 @@ A Python command-line toolkit for managing your Upwork freelancing workflow from
 
 - **Job Search** -- Query the Upwork marketplace via GraphQL API with budget, job type, and recency filters.
 - **AI Job Scoring** -- Score job postings (1-10) against your freelancer profile using Anthropic Claude, so you can focus on the best-fit opportunities.
-- **AI Proposal Generation** -- Generate tailored cover letters for specific jobs. Choose tone (professional, casual, technical, enthusiastic) and length (short, medium, long). Refine proposals iteratively with natural-language feedback.
+- **AI Proposal Generation** -- Generate tailored cover letters for specific jobs, or from a pasted job description with `--from-file` (no Upwork API access required). Choose tone (professional, casual, technical, enthusiastic) and length (short, medium, long). Refine proposals iteratively with natural-language feedback.
 - **Applications Dashboard** -- List and inspect your submitted applications with proposal status, timestamps, cached cover letters, and related offers.
 - **Job Monitoring** -- Watch for new postings on a schedule with `jobs watch`. Get notified in the terminal or via Discord webhook when high-scoring jobs appear.
 - **Saved Searches** -- Store your recurring queries and run or watch them as a batch with `jobs searches`.
@@ -26,7 +26,7 @@ A Python command-line toolkit for managing your Upwork freelancing workflow from
 | CLI framework | [Click](https://click.palletsprojects.com/) |
 | Terminal UI | [Rich](https://rich.readthedocs.io/) |
 | Upwork API | [python-upwork-oauth2](https://github.com/upwork/python-upwork) (OAuth2, GraphQL, REST) |
-| AI | [Anthropic Claude](https://docs.anthropic.com/) (claude-sonnet-4-5) |
+| AI | [Anthropic Claude](https://docs.anthropic.com/) (claude-opus-5 by default; configurable via `ai_model` in settings) |
 | Local storage | SQLite (jobs, scores, proposals, bookmarks) |
 | Config format | YAML (settings, profile) |
 | Secret storage | [keyring](https://pypi.org/project/keyring/) (system keychain) |
@@ -116,6 +116,9 @@ default_search_terms:
   - "react native"
 watch_interval_minutes: 5
 min_score_threshold: 7
+# Claude model for scoring/drafting. Set a cheaper model (e.g.
+# claude-haiku-4-5) if you score large batches often.
+ai_model: claude-opus-5
 ```
 
 ## Usage
@@ -188,19 +191,24 @@ upwork jobs saved
 # Generate a proposal for a specific job
 upwork propose generate <job-id>
 
+# No API access? Paste the job posting into a file and draft from that
+upwork propose generate --from-file job.md
+
 # Choose tone and length
 upwork propose generate <job-id> --tone technical --length long
 
 # Open the generated proposal in your editor for manual tweaks
 upwork propose generate <job-id> --edit
 
-# Refine the most recent proposal with feedback
+# Refine the most recent proposal (or a specific one by ID) with feedback
 upwork propose refine --feedback "emphasize my Python experience and add a question about their timeline"
+upwork propose refine 3 --feedback "make it shorter"
 
 # View proposal history
 upwork propose history
 
-# Show a specific proposal (and copy to clipboard on macOS)
+# Show a specific proposal and copy it to the clipboard
+# (pbcopy, wl-copy, xclip, or xsel)
 upwork propose show 3 --copy
 
 # Generate interview prep notes for a saved job
@@ -210,6 +218,10 @@ upwork propose prep <job-id>
 upwork propose mark 3 won
 upwork propose learn
 ```
+
+Generating a proposal moves the job to the `drafted` pipeline stage. After you
+actually submit it on Upwork, run `upwork pipeline move <job-id> applied` so
+win-rate stats only count proposals you really sent.
 
 Available tones: `professional`, `casual`, `technical`, `enthusiastic`
 Available lengths: `short` (~100 words), `medium` (~200 words), `long` (~350 words)
