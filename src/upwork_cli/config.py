@@ -9,6 +9,8 @@ from typing import Any, Optional
 import keyring
 import yaml
 
+from upwork_cli.ai.utils import DEFAULT_MODEL
+
 CONFIG_DIR = Path.home() / ".config" / "upwork-cli"
 AUTH_FILE = CONFIG_DIR / "auth.json"
 PROFILE_FILE = CONFIG_DIR / "profile.yaml"
@@ -89,6 +91,7 @@ class Settings:
     default_search_terms: list[str] = field(default_factory=list)
     watch_interval_minutes: int = 5
     min_score_threshold: int = 7
+    ai_model: str = DEFAULT_MODEL
 
     @property
     def client_secret(self) -> str:
@@ -110,6 +113,7 @@ class Settings:
             "default_search_terms": self.default_search_terms,
             "watch_interval_minutes": self.watch_interval_minutes,
             "min_score_threshold": self.min_score_threshold,
+            "ai_model": self.ai_model,
         }
 
     @classmethod

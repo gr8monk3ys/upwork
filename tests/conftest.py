@@ -187,10 +187,22 @@ def sample_rss_entry():
 # ---------------------------------------------------------------------------
 
 
-def mock_anthropic_response(text: str) -> MagicMock:
-    """Build a mock Anthropic ``messages.create`` return value."""
+def mock_anthropic_response(text: str, include_thinking: bool = False) -> MagicMock:
+    """Build a mock Anthropic ``messages.create`` return value.
+
+    With ``include_thinking``, a thinking block precedes the text block —
+    mirroring current models, where indexing ``content[0]`` is unsafe.
+    """
+    blocks = []
+    if include_thinking:
+        thinking_block = MagicMock()
+        thinking_block.type = "thinking"
+        thinking_block.thinking = "reasoning..."
+        blocks.append(thinking_block)
     content_block = MagicMock()
+    content_block.type = "text"
     content_block.text = text
+    blocks.append(content_block)
     response = MagicMock()
-    response.content = [content_block]
+    response.content = blocks
     return response

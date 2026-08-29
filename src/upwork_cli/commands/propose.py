@@ -1,9 +1,12 @@
 """AI-powered proposal / cover letter generation for Upwork jobs."""
 
+import hashlib
 import os
 import json
+import shlex
 import subprocess
 import tempfile
+from pathlib import Path
 
 import click
 from rich.console import Console
@@ -22,6 +25,7 @@ from upwork_cli.db import (
     set_pipeline_stage,
     mark_proposal_outcome,
     get_winning_proposals,
+    upsert_job,
 )
 from upwork_cli.ai.drafter import draft_proposal, refine_proposal
 
@@ -71,32 +75,67 @@ def _get_latest_proposal() -> dict | None:
 
 def _open_in_editor(text: str) -> str:
     """Write *text* to a temp file, open ``$EDITOR``, and return the edited content."""
-    editor = os.environ.get("EDITOR", "vi")
+    editor = shlex.split(os.environ.get("EDITOR", "vi") or "vi")
     with tempfile.NamedTemporaryFile(suffix=".md", mode="w", delete=False) as tmp:
         tmp.write(text)
         tmp_path = tmp.name
 
     try:
-        subprocess.call([editor, tmp_path])
+        subprocess.call(editor + [tmp_path])
         with open(tmp_path, "r") as fh:
             return fh.read()
     finally:
         os.unlink(tmp_path)
 
 
+CLIPBOARD_COMMANDS = (
+    ["pbcopy"],  # macOS
+    ["wl-copy"],  # Wayland
+    ["xclip", "-selection", "clipboard"],  # X11
+    ["xsel", "--clipboard", "--input"],  # X11
+)
+
+
 def _copy_to_clipboard(text: str) -> bool:
-    """Copy *text* to the system clipboard via pbcopy (macOS).
+    """Copy *text* to the system clipboard, trying platform tools in order.
 
     Returns True on success, False otherwise.
     """
-    try:
-        proc = subprocess.Popen(
-            ["pbcopy"], stdin=subprocess.PIPE, stderr=subprocess.DEVNULL
+    for command in CLIPBOARD_COMMANDS:
+        try:
+            proc = subprocess.Popen(
+                command, stdin=subprocess.PIPE, stderr=subprocess.DEVNULL
+            )
+            proc.communicate(input=text.encode("utf-8"))
+            if proc.returncode == 0:
+                return True
+        except FileNotFoundError:
+            continue
+    return False
+
+
+def _job_from_description(text: str, title: str | None, job_id: str | None) -> dict:
+    """Build and cache a job row from a pasted/filed job description.
+
+    This is the API-free path: the description is the source of truth, so
+    drafting works even without Upwork API access.
+    """
+    text = text.strip()
+    if not text:
+        raise click.UsageError("Job description file is empty.")
+
+    if not title:
+        first_line = next(
+            (line.strip() for line in text.splitlines() if line.strip()), "Untitled"
         )
-        proc.communicate(input=text.encode("utf-8"))
-        return proc.returncode == 0
-    except FileNotFoundError:
-        return False
+        title = first_line.lstrip("#").strip()[:80] or "Untitled"
+
+    if not job_id:
+        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:8]
+        job_id = f"manual-{digest}"
+
+    upsert_job({"id": job_id, "title": title, "description": text})
+    return {"id": job_id, "title": title, "description": text}
 
 
 # ---------------------------------------------------------------------------
@@ -116,7 +155,23 @@ def propose():
 
 
 @propose.command()
-@click.argument("job_id")
+@click.argument("job_id", required=False)
+@click.option(
+    "--from-file",
+    "from_file",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help=(
+        "Draft from a job description in a local file (paste the posting text). "
+        "Works without any Upwork API access."
+    ),
+)
+@click.option(
+    "--title",
+    type=str,
+    default=None,
+    help="Job title when using --from-file (defaults to the file's first line).",
+)
 @click.option(
     "--tone",
     type=click.Choice(["professional", "casual", "technical", "enthusiastic"]),
@@ -144,8 +199,19 @@ def propose():
     show_default=True,
     help="Run AI client research before drafting.",
 )
-def generate(job_id: str, tone: str, length: str, open_editor: bool, research: bool):
-    """Generate a tailored cover letter for JOB_ID."""
+def generate(
+    job_id: str | None,
+    from_file: Path | None,
+    title: str | None,
+    tone: str,
+    length: str,
+    open_editor: bool,
+    research: bool,
+):
+    """Generate a tailored cover letter for JOB_ID or a --from-file description."""
+
+    if job_id is None and from_file is None:
+        raise click.UsageError("Provide a JOB_ID or --from-file <path>.")
 
     settings = load_settings()
     profile = load_profile()
@@ -164,7 +230,13 @@ def generate(job_id: str, tone: str, length: str, open_editor: bool, research: b
         )
 
     # 1. Load job ----------------------------------------------------------
-    job = _get_job_from_db(job_id)
+    if from_file is not None:
+        job = _job_from_description(
+            from_file.read_text(encoding="utf-8"), title, job_id
+        )
+        job_id = job["id"]
+    else:
+        job = _get_job_from_db(job_id)
     if job is None:
         console.print(
             f"[dim]Job {job_id} not in local cache. Fetching from API...[/dim]"
@@ -173,7 +245,6 @@ def generate(job_id: str, tone: str, length: str, open_editor: bool, research: b
             client = UpworkClient(settings=settings)
             job_data = client.get_job_detail(job_id)
             # Persist to DB for future use
-            from upwork_cli.db import upsert_job
             from upwork_cli.models import JobPosting
 
             posting = JobPosting.from_rest(job_data)
@@ -181,6 +252,11 @@ def generate(job_id: str, tone: str, length: str, open_editor: bool, research: b
             job = _get_job_from_db(job_id)
         except Exception as exc:
             console.print(f"[red]Failed to fetch job {job_id}:[/red] {exc}")
+            console.print(
+                "[dim]Tip: save the job posting text to a file and run "
+                "[bold]propose generate --from-file <path>[/bold] — "
+                "no API access needed.[/dim]"
+            )
             raise SystemExit(1)
 
     if job is None:
@@ -209,19 +285,41 @@ def generate(job_id: str, tone: str, length: str, open_editor: bool, research: b
     profile_summary = profile.summary() if profile.title else ""
 
     # 2a. Client research (optional) ---------------------------------------
+    has_client_data = any(
+        job.get(key)
+        for key in (
+            "client_total_spent",
+            "client_total_hires",
+            "client_feedback",
+            "client_country",
+            "client_verified",
+        )
+    )
+    if research and not has_client_data:
+        research = False
+        console.print(
+            "[dim]No client data available for this job — skipping client research.[/dim]"
+        )
     if research:
         from upwork_cli.ai.researcher import research_client
 
+        client_research = {}
         with console.status("[bold green]Researching client..."):
-            client_research = research_client(
-                job_summary=job_summary,
-                total_spent=job.get("client_total_spent"),
-                total_hires=job.get("client_total_hires"),
-                feedback=job.get("client_feedback"),
-                country=job.get("client_country", ""),
-                verified=bool(job.get("client_verified")),
-                api_key=settings.anthropic_api_key,
-            )
+            try:
+                client_research = research_client(
+                    job_summary=job_summary,
+                    total_spent=job.get("client_total_spent"),
+                    total_hires=job.get("client_total_hires"),
+                    feedback=job.get("client_feedback"),
+                    country=job.get("client_country", ""),
+                    verified=bool(job.get("client_verified")),
+                    api_key=settings.anthropic_api_key,
+                    model=settings.ai_model,
+                )
+            except RuntimeError as exc:
+                console.print(
+                    f"[yellow]Client research failed ({exc}) — drafting without it.[/yellow]"
+                )
 
         if client_research.get("brief"):
             console.print(
@@ -245,14 +343,19 @@ def generate(job_id: str, tone: str, length: str, open_editor: bool, research: b
 
     # 2c. Draft proposal ---------------------------------------------------
     with console.status("[bold green]Generating proposal..."):
-        content = draft_proposal(
-            job_summary=job_summary,
-            profile_summary=profile_summary,
-            api_key=settings.anthropic_api_key,
-            tone=tone,
-            length=length,
-            style_guide=style_guide,
-        )
+        try:
+            content = draft_proposal(
+                job_summary=job_summary,
+                profile_summary=profile_summary,
+                api_key=settings.anthropic_api_key,
+                tone=tone,
+                length=length,
+                style_guide=style_guide,
+                model=settings.ai_model,
+            )
+        except RuntimeError as exc:
+            console.print(f"[red]Proposal generation failed:[/red] {exc}")
+            raise SystemExit(1)
 
     # 3. Optional editor pass ----------------------------------------------
     if open_editor:
@@ -265,7 +368,9 @@ def generate(job_id: str, tone: str, length: str, open_editor: bool, research: b
         content=content,
         tone=tone,
     )
-    set_pipeline_stage(job_id, "applied")
+    # A draft is not an application — win-rate stats only count jobs you
+    # actually submitted. Move to "applied" once the proposal is really sent.
+    set_pipeline_stage(job_id, "drafted")
 
     # 5. Display -----------------------------------------------------------
     console.print()
@@ -281,6 +386,11 @@ def generate(job_id: str, tone: str, length: str, open_editor: bool, research: b
         f"\n[dim]Saved as proposal [bold]#{proposal_id}[/bold]. "
         f"Use [bold]propose show {proposal_id}[/bold] to view again.[/dim]"
     )
+    console.print(
+        f"[dim]After you submit it on Upwork, run "
+        f"[bold]upwork pipeline move {job_id} applied[/bold] "
+        f"so your win-rate stats stay honest.[/dim]"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -289,14 +399,15 @@ def generate(job_id: str, tone: str, length: str, open_editor: bool, research: b
 
 
 @propose.command()
+@click.argument("proposal_id", type=int, required=False)
 @click.option(
     "--feedback",
     type=str,
     default=None,
     help="Describe what to change (e.g. 'make it shorter', 'emphasize Python skills').",
 )
-def refine(feedback: str | None):
-    """Refine the most recent proposal based on feedback."""
+def refine(proposal_id: int | None, feedback: str | None):
+    """Refine PROPOSAL_ID (default: the most recent proposal) based on feedback."""
 
     settings = load_settings()
 
@@ -307,13 +418,18 @@ def refine(feedback: str | None):
         )
         raise SystemExit(1)
 
-    # Load most recent proposal
-    proposal = _get_latest_proposal()
-    if proposal is None:
-        console.print(
-            "[red]No proposals found.[/red] Generate one first with [bold]propose generate[/bold]."
-        )
-        raise SystemExit(1)
+    if proposal_id is not None:
+        proposal = _get_proposal_by_id(proposal_id)
+        if proposal is None:
+            console.print(f"[red]Proposal #{proposal_id} not found.[/red]")
+            raise SystemExit(1)
+    else:
+        proposal = _get_latest_proposal()
+        if proposal is None:
+            console.print(
+                "[red]No proposals found.[/red] Generate one first with [bold]propose generate[/bold]."
+            )
+            raise SystemExit(1)
 
     original_content = proposal["content"]
     job_id = proposal["job_id"]
@@ -325,11 +441,16 @@ def refine(feedback: str | None):
 
     # Refine
     with console.status("[bold green]Refining proposal..."):
-        refined_content = refine_proposal(
-            current_draft=original_content,
-            feedback=feedback,
-            api_key=settings.anthropic_api_key,
-        )
+        try:
+            refined_content = refine_proposal(
+                current_draft=original_content,
+                feedback=feedback,
+                api_key=settings.anthropic_api_key,
+                model=settings.ai_model,
+            )
+        except RuntimeError as exc:
+            console.print(f"[red]Refinement failed:[/red] {exc}")
+            raise SystemExit(1)
 
     # Save refined version as a new proposal
     new_id = save_proposal(
@@ -447,7 +568,7 @@ def show(proposal_id: int, copy_to_clip: bool):
         else:
             console.print(
                 "\n[red]Failed to copy to clipboard.[/red] "
-                "[dim](pbcopy not available — macOS only)[/dim]"
+                "[dim](no clipboard tool found — install pbcopy, wl-copy, xclip, or xsel)[/dim]"
             )
 
 
@@ -490,6 +611,7 @@ def prep(job_id: str):
                 job_summary=job_summary,
                 profile_summary=profile_summary,
                 api_key=settings.anthropic_api_key,
+                model=settings.ai_model,
             )
         except RuntimeError as exc:
             console.print(f"[red]{exc}[/red]")
@@ -559,7 +681,9 @@ def learn():
 
     with console.status("[bold green]Analyzing winning proposals..."):
         try:
-            style_guide = extract_winning_patterns(winners, settings.anthropic_api_key)
+            style_guide = extract_winning_patterns(
+                winners, settings.anthropic_api_key, model=settings.ai_model
+            )
         except RuntimeError as exc:
             console.print(f"[red]{exc}[/red]")
             raise SystemExit(1)

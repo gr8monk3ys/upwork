@@ -96,6 +96,7 @@ def view(stage):
         st = j.get("stage", "?")
         stage_colors = {
             "found": "dim",
+            "drafted": "cyan",
             "applied": "blue",
             "interviewing": "yellow",
             "won": "green",

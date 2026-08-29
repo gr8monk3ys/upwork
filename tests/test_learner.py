@@ -11,7 +11,7 @@ from tests.conftest import mock_anthropic_response
 class TestExtractWinningPatterns:
     def test_happy_path(self):
         resp = mock_anthropic_response("## Opening Patterns\nStart with a hook...")
-        with patch("upwork_cli.ai.learner.Anthropic") as M:
+        with patch("upwork_cli.ai.utils.Anthropic") as M:
             M.return_value.messages.create.return_value = resp
             result = extract_winning_patterns(
                 [
@@ -30,9 +30,9 @@ class TestExtractWinningPatterns:
             extract_winning_patterns([], "key")
 
     def test_api_error_raises(self):
-        with patch("upwork_cli.ai.learner.Anthropic") as M:
+        with patch("upwork_cli.ai.utils.Anthropic") as M:
             M.return_value.messages.create.side_effect = Exception("fail")
-            with pytest.raises(RuntimeError, match="Pattern extraction failed"):
+            with pytest.raises(RuntimeError, match="Anthropic call failed"):
                 extract_winning_patterns(
                     [{"content": "text", "job_title": "J", "tone": "casual"}],
                     "key",
@@ -40,7 +40,7 @@ class TestExtractWinningPatterns:
 
     def test_multiple_proposals(self):
         resp = mock_anthropic_response("Style guide from multiple proposals.")
-        with patch("upwork_cli.ai.learner.Anthropic") as M:
+        with patch("upwork_cli.ai.utils.Anthropic") as M:
             M.return_value.messages.create.return_value = resp
             proposals = [
                 {
