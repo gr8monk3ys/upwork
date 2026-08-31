@@ -90,6 +90,12 @@ written to the keychain.
 
 Apply only to jobs that pass every row of packet §11. Two a day for five days:
 
+- [x] 2026-08-31: two real postings found, drafted and staged in the Upwork
+      Apply form (`proposals-2026-08-31.md`) — the user clicks Send. Market
+      note: with payment-verified + <15 proposals + ≥$50/hr or ≥$1K, the
+      RAG/LangChain/FastAPI searches returned under 10 live jobs that day;
+      loosen to <20 proposals before loosening budget.
+
 - [ ] For each job: copy the posting into `job.md` →
       `upwork propose generate --from-file job.md` → rewrite the first two
       sentences by hand per packet §12 → submit on Upwork →
