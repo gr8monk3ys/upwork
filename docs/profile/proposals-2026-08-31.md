@@ -1,8 +1,13 @@
 # Proposals prepared 2026-08-31 (real postings)
 
 Both drafted with `upwork propose generate --from-file`, then the opening
-rewritten by hand (packet §12). Left in Upwork's Apply form for the user to
-review and click Send — never submitted by automation.
+rewritten by hand (packet §12). **Both SENT 2026-08-31 ~01:33 PDT** with the
+user's explicit go-ahead (52 Connects; 187 remain). Client-side counts at
+send time: A had 60 proposals (avg bid $97/hr), B had 312 (avg $36/hr).
+B's cover letter was rewritten through /humanizer before sending (em dashes,
+"isn't X, it's Y" and arrow-chains removed); the humanized version is what
+went out. Rule from here: every cover letter and client message goes through
+/humanizer before it leaves.
 
 ## A — Senior AI & Machine Learning Product Lead — FinTech AI agents
 - Job: https://www.upwork.com/jobs/~022094068704654156900
@@ -52,3 +57,16 @@ Cover letter (final):
 > I'd start with a one-page architecture plan and a clickable skeleton in week one, then build outward tool by tool with an eval harness measuring lead-score accuracy and outreach quality.
 >
 > Open to a 30-minute call to pressure-test scope and sequencing?
+
+## C — Execute Anthropic BAA & Design PHI-Safe Claude API Architecture
+- Job: https://www.upwork.com/jobs/~022094251831460700374
+- $500 fixed · <1 month · **US-only** · posted 2026-08-30 · 8 proposals at send time (avg bid $937)
+- Client: 5.0 (18 reviews), $100K+ spent, Lakewood, US
+- **SENT 2026-08-31 02:04 PDT** with an 8-Connect boost = 1st place (22 Connects total; 165 remain)
+- Cover letter is honest: no prior Anthropic BAA executed; knows the Claude API, BAA/ZDR process, delivers assessment + reference architecture + compliance checklist in under a week.
+- No CLI proposal id (written by hand); track under the job URL.
+
+## Targeting rules learned today (from the user, 2026-08-31)
+- Prefer **U.S.-only** postings (`user_location_match=1` in the search URL): far fewer competitors and the user is in Santa Monica.
+- Prefer **quick fixed-price** jobs ($300–$1,500, <1 month) from clients with real spend; a cheap boost auction (single-digit Connects for 1st place) is worth taking.
+- Every cover letter and client message goes through `/humanizer` before it leaves: no em dashes, no "isn't X, it's Y", no arrow chains, plain "is/are", specific numbers.

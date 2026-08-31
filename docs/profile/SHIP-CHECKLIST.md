@@ -87,8 +87,10 @@ written to the keychain.
 
 Apply only to jobs that pass every row of packet §11. Two a day for five days:
 
-- [x] 2026-08-31: two real postings found, drafted and staged in the Upwork
-      Apply form (`proposals-2026-08-31.md`) — the user clicks Send. Market
+- [x] 2026-08-31: **three proposals sent** (`proposals-2026-08-31.md`): FinTech
+      AI-agents lead ($85/hr), AI sales-ops build ($45/hr), Anthropic BAA /
+      PHI-safe Claude architecture ($500 fixed, US-only, boosted to 1st place).
+      74 Connects spent, 165 left. Market
       note: with payment-verified + <15 proposals + ≥$50/hr or ≥$1K, the
       RAG/LangChain/FastAPI searches returned under 10 live jobs that day;
       loosen to <20 proposals before loosening budget.
