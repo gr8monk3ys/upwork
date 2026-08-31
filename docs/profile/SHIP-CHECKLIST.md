@@ -45,13 +45,10 @@ API directly (checked 2026-08-31). The three sample drafts were generated
 with a key passed as `ANTHROPIC_API_KEY` for that session only; nothing was
 written to the keychain.
 
-- [ ] `upwork config setup` → paste a working key when prompted for Anthropic
-      (Enter keeps the dead one — don't). Or `export ANTHROPIC_API_KEY=...` in
-      the shell; env wins over keychain.
-- [ ] Prove it: copy one job block from `proposal-samples.md` into `job.md`
-      and run `upwork propose generate --from-file job.md`. A draft appearing
-      means it's fixed. (`config status` saying "Set" proves nothing — it only
-      checks presence; see friction log F-01.)
+- [x] 2026-08-31: the keychain entry was replaced with the working key from
+      `~/code/blog-AI/.env` and verified with a live `GET /v1/models` (200).
+      Every `upwork propose` / `jobs score` command now works without an env
+      var. (`config status` saying "Set" still only checks presence — F-01.)
 
 ## Phase 2 — Update the profile (applied live 2026-08-31, authorized session)
 
