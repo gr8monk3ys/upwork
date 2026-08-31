@@ -70,9 +70,12 @@ written to the keychain.
 - [x] Education & certifications were already correct
 - [ ] Specialized profiles A and B (packet §9) — not done
 - [x] Availability badge ON, 30+ hrs/week; Rising Talent badge showing
-- [ ] Project Catalog: 5 drafts already exist in
-      upwork.com/nx/project-dashboard — finish A (RAG chatbot) and B (MVP)
-      from packet §6 rather than starting new ones
+- [x] Project Catalog A (RAG chatbot, $1,500/$3,500/$6,500): gallery image,
+      2 client requirements, summary, 4 delivery steps, 1 FAQ added and
+      **submitted for Upwork review** 2026-08-31 (user authorized the ToS
+      tick). B (MVP) and C (ETL) drafts from Feb 2026 still need the same
+      gallery/requirements/description pass and a submit — same wizard,
+      ~10 minutes each.
 
 ## Phase 3 — Upwork API (optional; do not block on it)
 
