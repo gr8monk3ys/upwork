@@ -29,13 +29,14 @@ content in the shape the CLI imports.
 - [x] `profile.yaml` imported into the CLI (`upwork config profile --file docs/profile/profile.yaml`)
 - [x] Drafting pipeline proven end-to-end on three sample jobs —
       `proposal-samples.md`
-- [ ] Screenshots: 1–3 per portfolio item. Sources already on disk:
-      `~/code/blog-AI/docs/screenshot.png`,
-      `~/code/TAlker/docs/assets/hero.png`,
-      `~/code/InfiniStar/docs/screenshots/home.png`. Link Flame needs a fresh
-      capture of the live storefront. Sizzle item needs an architecture diagram.
-- [ ] Headshot: `https://lscaturchio.xyz/images/portrait.webp` is already
-      public; download and reuse.
+- [x] Screenshots captured 2026-08-31 into `docs/profile/assets/` (1440×900):
+      `blog-ai-live.png` + `blog-ai-repo.png`, `link-flame-live.png`,
+      `infinistar-live.png`, `talker-hero.png`,
+      `sizzle-vision-pipeline.png` (schematic diagram drawn from the resume
+      bullets — nothing beyond them).
+- [x] Headshot: `docs/profile/assets/headshot.webp` (1200×1244, from
+      lscaturchio.xyz). Upwork wants JPG/PNG — convert on upload if it
+      refuses WebP.
 
 ## Phase 1b — Fix the Anthropic key (5 min, blocks every AI command)
 
