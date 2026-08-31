@@ -1,10 +1,10 @@
 # CLI-importable copy of profile-packet.md §1–§5. Keep in sync with the packet.
 # Import: uv run upwork config profile --file docs/profile/profile.yaml
 title: "AI Engineer | RAG, LLM Apps, LangChain | Python, FastAPI, Next.js"
-hourly_rate: "$95/hr"
+hourly_rate: "$75/hr"
 experience_years: 6
 overview: |
-  I build AI-powered applications that make it to production: RAG systems, LLM integrations, and the full-stack web apps and data pipelines around them. Six years of professional software work, an M.S. in Applied Data Science (USC), and a 98% Job Success Score on Upwork.
+  I build AI-powered applications that make it to production: RAG systems, LLM integrations, and the full-stack web apps and data pipelines around them. Six years of professional software work and an M.S. in Applied Data Science (USC). Rising Talent on Upwork.
 
   What I deliver:
   - RAG and LLM systems: document Q&A, chatbots, content generation, multi-provider LLM backends (OpenAI, Anthropic, Gemini), evaluation harnesses so retrieval quality is measured, not guessed
@@ -17,7 +17,6 @@ overview: |
   - Blog AI (open source, 56 GitHub stars): research → outline → per-section drafting → fact-check → SEO loop; Next.js + FastAPI, live with Clerk auth and Stripe billing
   - TAlker, a RAG teaching assistant: hybrid BM25 + vector retrieval, cross-encoder reranking, RAGAS-style evaluation, six LLM providers behind one interface
   - DOE Joint Genome Institute (2020–2021): genomics ETL cut from 4 hours to 10 minutes
-  - Freelance on Upwork since Aug 2022: RAG document Q&A systems, classification dashboards, automated data pipelines for 4 clients
 
   How I work: a short written plan before code, a working deployment you can click on early, tests on the parts that matter, plain-English updates.
 skills:
@@ -36,6 +35,11 @@ skills:
   - Docker
   - Google Cloud Platform
   - ETL
+  - Machine Learning
+  - SQL
+  - Kubernetes
+  - Vector Database
+  - Natural Language Processing
 portfolio:
   - name: Blog AI — AI content generation platform (56 GitHub stars, live)
     description: "Multi-stage LLM pipeline (research with up to 8 cited sources, outline, per-section drafting, proofreading, SEO loop, claim-by-claim fact check) behind one generate_text() abstraction over OpenAI/Anthropic/Gemini with retries and rate limits. Next.js 16 + FastAPI, Clerk, Neon Postgres, Stripe. CI: lint, type-check, unit, Playwright E2E, migration smoke test. Lighthouse 96 a11y / 100 SEO."

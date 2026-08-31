@@ -5,10 +5,20 @@ Single source of truth for the Upwork profile. Every fact below was checked on
 live deployments. There are no placeholders left. If you change a number here,
 change it in the resume too — clients cross-check Upwork against LinkedIn.
 
-**This is an UPDATE, not a launch.** The profile already exists with a
-contract history (4 clients since Aug 2022, 98% Job Success Score per the
-resume). Do not create a new account; edit the existing one so the JSS and
-reviews carry over.
+**This is an UPDATE, not a launch.** The live profile (checked 2026-08-31)
+shows: Rising Talent badge, $700+ total earnings, 4 jobs (3 completed Feb–May
+2026 at $50–$500 fixed price, 1 in progress), one 5.0 review, 239 Connects,
+**no Job Success Score yet** (JSS needs more completed work). The resume's
+"98% JSS, 4 clients since Aug 2022" does not match what Upwork displays, so
+the overview does not claim a JSS — Upwork prints the real stats right next
+to it.
+
+**Applied live on 2026-08-31 via the user's own Chrome session (authorized
+for profile edits only):** title, overview, 20 skills, Sizzle description +
+end date (May 2025), JGI end date (Aug 2021), and three new portfolio items
+(TAlker with GitHub link, InfiniStar, Sizzle pipeline diagram). Not applied:
+hourly rate (permission classifier blocked the money field — set it by hand),
+Project Catalog, specialized profiles.
 
 ## 0) What changed from the previous packet, and why
 
@@ -36,8 +46,8 @@ Alternates:
 
 I build AI-powered applications that make it to production: RAG systems,
 LLM integrations, and the full-stack web apps and data pipelines around them.
-Six years of professional software work, an M.S. in Applied Data Science
-(USC), and a 98% Job Success Score on Upwork.
+Six years of professional software work and an M.S. in Applied Data Science
+(USC).
 
 What I deliver:
 
@@ -59,39 +69,24 @@ Available for fixed-scope builds and ongoing development.
 
 ## 3) Rate — one number, used everywhere
 
-**List $95/hr.**
+**Set $75/hr** (live profile is still $50/hr — change it by hand; the
+automated session was blocked from editing the rate field).
 
-With a 98% JSS and named production numbers this is defensible; without them
-it would not be. Quote fixed-price work from the Project Catalog tiers in §6,
-not hourly. Revisit after the next 2–3 reviews.
+Why not $95: the account shows $700 lifetime earnings, three small fixed-price
+jobs and no JSS. At $95 with that history the profile gets filtered out of
+invites. Why not $50: it undercuts an M.S. plus production ML numbers and
+attracts the wrong clients. Quote fixed-price work from the Project Catalog
+tiers in §6, not hourly. Move to $95 after the next 2–3 reviews land.
 
-## 4) Skills (Upwork caps at 15 — this exact order)
+## 4) Skills (Upwork allows 20 — live list as of 2026-08-31)
 
-Ordered by what clients actually search for in AI/LLM job posts, then the
-stack that backs it. Exact Upwork label in parentheses when it differs.
+Python · SQL · Kubernetes · LangChain · Vector Database · FastAPI · OpenAI API
+· Natural Language Processing · TypeScript · Next.js · React · Node.js ·
+Docker · Large Language Model · Retrieval Augmented Generation · Chatbot
+Development · PostgreSQL · Google Cloud Platform · ETL · Machine Learning
 
-1. Python
-2. LangChain
-3. Retrieval Augmented Generation (RAG)
-4. Large Language Model (LLM)
-5. OpenAI API
-6. Chatbot Development (AI Chatbot)
-7. FastAPI
-8. Next.js
-9. React
-10. TypeScript
-11. Node.js
-12. PostgreSQL
-13. Docker
-14. Google Cloud Platform
-15. ETL
-
-If a label isn't accepted, swap in (in this order): Generative AI, Vector
-Database, Machine Learning, AWS, Data Engineering, Kubernetes.
-
-Dropped from the old list: Kubernetes and AWS (Sizzle work was GCP; K8s is not
-a search term for AI clients), API Development (too generic), Data
-Engineering (covered by ETL).
+Kept the 14 that were already there (removed only "API Development") and
+added the six AI/LLM-search terms. These are Upwork's exact labels.
 
 ## 5) Portfolio Items (verified 2026-08-31)
 
@@ -210,11 +205,10 @@ preprocessing workflow for a 50k+ image dataset; augmentation strategies
 raised model accuracy by 12 percentage points.
 
 ### Freelance AI / Full-Stack Engineer — Self-employed (Upwork) | Aug 2022 – Present
-RAG-based document Q&A systems, classification dashboards, and automated
-data pipelines with React and FastAPI front ends for 4 clients; CI/CD,
-containerization and monitoring for each. 98% Job Success Score.
-(Upwork shows the contract history itself; this entry just makes the
-timeline continuous.)
+Not added to Upwork's employment history — Upwork shows the contract
+history itself (3 completed jobs, Feb–May 2026) and a freelance entry
+claiming "since Aug 2022" would contradict it. If the resume keeps that
+line, it needs off-platform client names behind it.
 
 ### Bioinformatics Data Analyst — DOE Joint Genome Institute | Berkeley, CA | May 2020 – Aug 2021
 Data-processing pipelines in R for genomic homology comparison, cutting

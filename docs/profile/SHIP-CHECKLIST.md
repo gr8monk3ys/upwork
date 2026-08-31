@@ -53,23 +53,26 @@ written to the keychain.
       means it's fixed. (`config status` saying "Set" proves nothing — it only
       checks presence; see friction log F-01.)
 
-## Phase 2 — Paste the profile (~1 hour, Upwork Settings → Profile)
+## Phase 2 — Update the profile (applied live 2026-08-31, authorized session)
 
-This is an UPDATE of the existing profile, in this order:
-
-- [ ] Title (packet §1)
-- [ ] Overview (packet §2 — no external links in the text)
-- [ ] Hourly rate: $95 (packet §3)
-- [ ] Skills: the 15 in packet §4, in order; use the swap list if a label
-      isn't accepted
-- [ ] Portfolio: items 1–5 from packet §5 with screenshots + the number in
-      each; add 6–10 later
-- [ ] Employment history: Sizzle, Freelance, JGI exactly as packet §7
-- [ ] Education & certifications (packet §8)
-- [ ] Specialized profiles A and B (packet §9)
-- [ ] Availability badge ON, 30+ hrs/week; profile Public (packet §10)
-- [ ] Project Catalog: create A (RAG chatbot) and B (Full-Stack MVP) from
-      packet §6; add C later
+- [x] Title (packet §1) — live
+- [x] Overview (packet §2; `<200 ms` had to become "under 200 ms": Upwork
+      rejects `<` as HTML) — live
+- [ ] Hourly rate → $75 (packet §3). **Blocked for automation** (money field);
+      Profile → pencil next to $50.00/hr → 75 → Save. 30 seconds.
+- [x] Skills: 20 live (packet §4)
+- [x] Portfolio: TAlker (+GitHub link), InfiniStar, Sizzle diagram added;
+      Blog-AI, Link Flame, Remedi, HealthCalc, Paper Summarizer, Personal
+      Website were already there. Upwork's link fetcher rejects Vercel URLs,
+      so InfiniStar/Link Flame carry no link.
+- [x] Employment history: Sizzle rewritten with resume numbers, end date
+      May 2025; JGI end date Aug 2021; VICE Lab left as-is
+- [x] Education & certifications were already correct
+- [ ] Specialized profiles A and B (packet §9) — not done
+- [x] Availability badge ON, 30+ hrs/week; Rising Talent badge showing
+- [ ] Project Catalog: 5 drafts already exist in
+      upwork.com/nx/project-dashboard — finish A (RAG chatbot) and B (MVP)
+      from packet §6 rather than starting new ones
 
 ## Phase 3 — Upwork API (optional; do not block on it)
 
