@@ -1,0 +1,60 @@
+# CLI-importable copy of profile-packet.md §1–§5. Keep in sync with the packet.
+# Import: uv run upwork config profile --file docs/profile/profile.yaml
+title: "AI Engineer | RAG, LLM Apps, LangChain | Python, FastAPI, Next.js"
+hourly_rate: "$95/hr"
+experience_years: 6
+overview: |
+  I build AI-powered applications that make it to production: RAG systems, LLM integrations, and the full-stack web apps and data pipelines around them. Six years of professional software work, an M.S. in Applied Data Science (USC), and a 98% Job Success Score on Upwork.
+
+  What I deliver:
+  - RAG and LLM systems: document Q&A, chatbots, content generation, multi-provider LLM backends (OpenAI, Anthropic, Gemini), evaluation harnesses so retrieval quality is measured, not guessed
+  - Full-stack web apps: Next.js/React/TypeScript front ends with FastAPI or Node backends, Postgres, auth (Clerk/NextAuth), Stripe billing, deployed on Vercel/GCP/AWS
+  - Data engineering: ETL pipelines, streaming (Kafka/Spark), warehouse modeling, dashboards
+  - Deployment: Docker, CI/CD, monitoring, Kubernetes when warranted
+
+  Recent work:
+  - ML Engineer at a Los Angeles startup (Sizzle, Jun 2024–May 2025): vision-AI pipeline on GCP Vertex AI serving 5k+ inference requests/day at <200 ms p95 for 10+ B2B clients; 50k-image labeling/augmentation workflow raised accuracy by 12 percentage points
+  - Blog AI (open source, 56 GitHub stars): research → outline → per-section drafting → fact-check → SEO loop; Next.js + FastAPI, live with Clerk auth and Stripe billing
+  - TAlker, a RAG teaching assistant: hybrid BM25 + vector retrieval, cross-encoder reranking, RAGAS-style evaluation, six LLM providers behind one interface
+  - DOE Joint Genome Institute (2020–2021): genomics ETL cut from 4 hours to 10 minutes
+  - Freelance on Upwork since Aug 2022: RAG document Q&A systems, classification dashboards, automated data pipelines for 4 clients
+
+  How I work: a short written plan before code, a working deployment you can click on early, tests on the parts that matter, plain-English updates.
+skills:
+  - Python
+  - LangChain
+  - Retrieval Augmented Generation (RAG)
+  - Large Language Model (LLM)
+  - OpenAI API
+  - AI Chatbot Development
+  - FastAPI
+  - Next.js
+  - React
+  - TypeScript
+  - Node.js
+  - PostgreSQL
+  - Docker
+  - Google Cloud Platform
+  - ETL
+portfolio:
+  - name: Blog AI — AI content generation platform (56 GitHub stars, live)
+    description: "Multi-stage LLM pipeline (research with up to 8 cited sources, outline, per-section drafting, proofreading, SEO loop, claim-by-claim fact check) behind one generate_text() abstraction over OpenAI/Anthropic/Gemini with retries and rate limits. Next.js 16 + FastAPI, Clerk, Neon Postgres, Stripe. CI: lint, type-check, unit, Playwright E2E, migration smoke test. Lighthouse 96 a11y / 100 SEO."
+    url: https://blog-ai.vivancedata.com
+  - name: TAlker — RAG teaching assistant
+    description: "LangChain + ChromaDB; EnsembleRetriever (BM25 + vector), cross-encoder reranking, LLM query expansion, RAGAS-style LLM-as-judge evaluation (faithfulness, answer relevancy, context precision/recall). Six providers (OpenAI, Anthropic, Gemini, Cohere, Ollama, HuggingFace) behind one factory; 62 tests; Piazza course-post bot."
+    url: https://github.com/gr8monk3ys/TAlker
+  - name: Link Flame — Next.js e-commerce platform (live)
+    description: "Product catalog, cart, checkout. Prisma on PostgreSQL, Stripe payments, NextAuth v5, Upstash Redis rate limiting, Tailwind, CI/CD to Vercel. Lighthouse 96 accessibility / 93 best practices."
+    url: https://link-flame-rouge.vercel.app
+  - name: InfiniStar — AI character chat app (live)
+    description: "Next.js 16 / React 19: streaming AI chat, real-time messaging (Pusher), creator profiles with follows/tips/subscriptions, Stripe checkout + billing portal + webhooks, Clerk auth, Prisma + Postgres, moderation reporting. Lighthouse 100/100/100 a11y/best-practices/SEO."
+    url: https://infini-star.vercel.app
+  - name: Production vision-AI pipeline (Sizzle, employment)
+    description: "Vertex AI + BigQuery pipeline serving 5k+ inference requests/day to mobile and web clients; fine-tuned vision model behind a Kotlin REST API at <200 ms p95 for 10+ B2B clients; 50k+ image labeling and augmentation workflow, +12 pp accuracy."
+  - name: HuggingFace ML portfolio
+    description: "14 published projects: fine-tuned DistilBERT paper classifier (~95% F1), resume-section classifier, Gradio Spaces for paper summarization, model-comparison arena, code explanation across 16 languages."
+    url: https://github.com/gr8monk3ys/huggingface
+  - name: Fraud Stream — real-time fraud detection pipeline (private repo)
+    description: "Kafka → Spark Structured Streaming → Snowflake medallion warehouse (Bronze/Silver/Gold); Avro schema registry, multi-level data-quality checks, HMAC-SHA256 PII masking, 8 fraud patterns at sub-second latency with configurable alerting."
+  - name: Homelab — K3s GitOps infrastructure (private repo)
+    description: "Manifests for 43 self-hosted apps: MetalLB, Traefik + cert-manager, External Secrets Operator, SOPS/age secrets, MinIO, Velero backups, kube-prometheus-stack, CrowdSec. CI-validated with yamllint, shellcheck, kubeconform, helm lint, kustomize build."
