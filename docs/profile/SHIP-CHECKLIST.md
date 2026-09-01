@@ -83,9 +83,16 @@ written to the keychain.
       cover; meeting summary + project plan in 2 days). Lesson: Upwork's
       wizard forms only accept keyboard-typed values — programmatic
       form_input fills looked right but were rejected with "server errors".
-      Submitted for review 2026-08-31 ~03:15 PDT with the user's OK.
+      Submitted 2026-08-31 ~03:15 PDT with the user's OK and **approved**
+      on the spot. Dashboard: 1 consultation + 3 catalog projects live, 0 drafts.
 - [x] Deleted the two stale 2024 project drafts (Dev & IT consultations,
       AI newsletter) with the user's OK.
+
+- [ ] Portfolio order: Blog AI (56★, live) sits on page 2; drag it first via
+      the Portfolio "reorder" control. Not done: Upwork raised a Cloudflare
+      "Verify you are human" check at ~03:20 PDT after ~2 hours of
+      automated edits. Do it by hand; treat the check as a signal to keep
+      automation sessions short.
 
 ## Phase 3 — Upwork API (optional; do not block on it)
 
