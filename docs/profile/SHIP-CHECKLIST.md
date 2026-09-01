@@ -77,10 +77,13 @@ written to the keychain.
 - [x] Catalog B (MVP, $1,200/$3,000/$6,000): gallery (Link Flame
       storefront), 2 requirements, summary, 4 steps, 1 FAQ; submitted
       2026-08-31 with the user's OK.
-- [ ] Consultation (Development & IT, 30 min, $75, 5 expertise areas,
-      meeting summary + project plan in 2 days): Overview saved as a draft;
-      the Pricing step returned "server errors" on 4 attempts around 02:30 PDT.
-      Retry from upwork.com/nx/project-dashboard (Consultations → Drafts).
+- [x] Consultation (Development & IT; 30 or 60 min at $75/30 min; AI & ML,
+      AI Integration, Chatbot Development, Web Programming, Prompt
+      Engineering; Mon–Fri 9–5 PT; one client requirement; Sizzle diagram as
+      cover; meeting summary + project plan in 2 days). Lesson: Upwork's
+      wizard forms only accept keyboard-typed values — programmatic
+      form_input fills looked right but were rejected with "server errors".
+      Submitted for review 2026-08-31 ~03:15 PDT with the user's OK.
 - [x] Deleted the two stale 2024 project drafts (Dev & IT consultations,
       AI newsletter) with the user's OK.
 
