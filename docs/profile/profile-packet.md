@@ -69,8 +69,7 @@ Available for fixed-scope builds and ongoing development.
 
 ## 3) Rate — one number, used everywhere
 
-**Set $75/hr** (live profile is still $50/hr — change it by hand; the
-automated session was blocked from editing the rate field).
+**$75/hr — live since 2026-08-31 18:59 PDT.**
 
 Why not $95: the account shows $700 lifetime earnings, three small fixed-price
 jobs and no JSS. At $95 with that history the profile gets filtered out of

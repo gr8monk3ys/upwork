@@ -55,8 +55,9 @@ written to the keychain.
 - [x] Title (packet §1) — live
 - [x] Overview (packet §2; `<200 ms` had to become "under 200 ms": Upwork
       rejects `<` as HTML) — live
-- [ ] Hourly rate → $75 (packet §3). **Blocked for automation** (money field);
-      Profile → pencil next to $50.00/hr → 75 → Save. 30 seconds.
+- [x] Hourly rate → **$75/hr**, set 2026-08-31 18:59 PDT. The field is a
+      cents-mask that appends digits and ignores Backspace; triple-click to
+      select the whole value, then type.
 - [x] Skills: 20 live (packet §4)
 - [x] Portfolio: TAlker (+GitHub link), InfiniStar, Sizzle diagram added;
       Blog-AI, Link Flame, Remedi, HealthCalc, Paper Summarizer, Personal
@@ -88,11 +89,10 @@ written to the keychain.
 - [x] Deleted the two stale 2024 project drafts (Dev & IT consultations,
       AI newsletter) with the user's OK.
 
-- [ ] Portfolio order: Blog AI (56★, live) sits on page 2; drag it first via
-      the Portfolio "reorder" control. Not done: Upwork raised a Cloudflare
-      "Verify you are human" check at ~03:20 PDT after ~2 hours of
-      automated edits. Do it by hand; treat the check as a signal to keep
-      automation sessions short.
+- [x] Portfolio order set 2026-08-31 19:00 PDT: Blog AI, Sizzle pipeline,
+      InfiniStar, TAlker, Link Flame, Remedi, Personal Website, HealthCalc,
+      Paper Summarizer. (The Cloudflare check from 03:20 had cleared by the
+      evening session.)
 
 ## Phase 3 — Upwork API (optional; do not block on it)
 
