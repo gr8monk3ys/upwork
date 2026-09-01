@@ -69,10 +69,20 @@ written to the keychain.
 - [x] Availability badge ON, 30+ hrs/week; Rising Talent badge showing
 - [x] Project Catalog A (RAG chatbot, $1,500/$3,500/$6,500): gallery image,
       2 client requirements, summary, 4 delivery steps, 1 FAQ added and
-      **submitted for Upwork review** 2026-08-31 (user authorized the ToS
-      tick). B (MVP) and C (ETL) drafts from Feb 2026 still need the same
-      gallery/requirements/description pass and a submit — same wizard,
-      ~10 minutes each.
+      submitted 2026-08-31 and **approved** the same night.
+- [x] Catalog C (ETL, $1,200/$3,000/$5,500): gallery diagram
+      (`assets/etl-pipeline.png`), 2 requirements, summary, 3 steps, 1 FAQ.
+      **Approved** 2026-08-31 02:50 (submitted from the user's side while
+      the assistant waited for the go-ahead).
+- [x] Catalog B (MVP, $1,200/$3,000/$6,000): gallery (Link Flame
+      storefront), 2 requirements, summary, 4 steps, 1 FAQ; submitted
+      2026-08-31 with the user's OK.
+- [ ] Consultation (Development & IT, 30 min, $75, 5 expertise areas,
+      meeting summary + project plan in 2 days): Overview saved as a draft;
+      the Pricing step returned "server errors" on 4 attempts around 02:30 PDT.
+      Retry from upwork.com/nx/project-dashboard (Consultations → Drafts).
+- [x] Deleted the two stale 2024 project drafts (Dev & IT consultations,
+      AI newsletter) with the user's OK.
 
 ## Phase 3 — Upwork API (optional; do not block on it)
 
