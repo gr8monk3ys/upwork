@@ -66,7 +66,9 @@ written to the keychain.
 - [x] Employment history: Sizzle rewritten with resume numbers, end date
       May 2025; JGI end date Aug 2021; VICE Lab left as-is
 - [x] Education & certifications were already correct
-- [ ] Specialized profiles A and B (packet §9) — not done
+- [x] Specialized profiles A and B (packet §9) — **N/A: Upwork removed the
+      feature platform-wide 2026-05-28** (verified 2026-09-01; §9 marked
+      obsolete, drafts kept as spare copy)
 - [x] Availability badge ON, 30+ hrs/week; Rising Talent badge showing
 - [x] Project Catalog A (RAG chatbot, $1,500/$3,500/$6,500): gallery image,
       2 client requirements, summary, 4 delivery steps, 1 FAQ added and
@@ -92,7 +94,20 @@ written to the keychain.
 - [x] Portfolio order set 2026-08-31 19:00 PDT: Blog AI, Sizzle pipeline,
       InfiniStar, TAlker, Link Flame, Remedi, Personal Website, HealthCalc,
       Paper Summarizer. (The Cloudflare check from 03:20 had cleared by the
-      evening session.)
+      evening session.) **Re-verified live 2026-09-01: page 1 shows Blog-AI,
+      Sizzle pipeline, InfiniStar; rate shows $75.00/hr.**
+
+### Known leftovers, deliberately not blocking (2026-09-01 audit)
+
+- Portfolio Drafts tab holds one stale draft ("Weedmaps") — invisible to
+  clients; delete or finish whenever.
+- Video introduction: empty. Only the user can record one; Upwork data says
+  it lifts response rates — worth 60 seconds on a webcam.
+- Testimonials: none. "Request a testimonial" emails a non-Upwork client —
+  user's call (Sizzle manager or a JGI colleague would fit).
+- Settings has "Hide my Upwork earnings" CHECKED — with only $700 shown,
+  hiding may read as evasive, or may usefully hide the small number; user's
+  judgment call, not changed.
 
 ## Phase 3 — Upwork API (optional; do not block on it)
 

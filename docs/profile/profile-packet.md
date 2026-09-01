@@ -225,10 +225,14 @@ the AI positioning) and Google SPS (student program).
 - DeepLearning.AI Natural Language Processing Specialization (2025)
 - Google Advanced Data Analytics Professional Certificate (2025)
 
-## 9) Specialized Profiles (Upwork allows 2 — set both)
+## 9) Specialized Profiles — OBSOLETE, feature removed by Upwork
 
-Specialized profiles get their own title/overview/skills and are shown to
-clients searching that category. Set them up after the main profile.
+**Do not attempt this section.** Upwork deleted every Specialized Profile
+platform-wide on 2026-05-28 (verified 2026-09-01: no creation entry point
+exists on the profile page or in settings, and Upwork's help center
+confirms the removal). The main profile is now dynamic — Upwork surfaces
+the most relevant skills/work per client automatically. The drafts below
+are kept only as source copy if Upwork ever brings the feature back.
 
 **A) AI & Machine Learning**
 Title: RAG & LLM Application Engineer | LangChain, OpenAI, FastAPI
