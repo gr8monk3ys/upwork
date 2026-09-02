@@ -97,17 +97,21 @@ written to the keychain.
       evening session.) **Re-verified live 2026-09-01: page 1 shows Blog-AI,
       Sizzle pipeline, InfiniStar; rate shows $75.00/hr.**
 
-### Known leftovers, deliberately not blocking (2026-09-01 audit)
+### 2026-09-01 evening pass (user delegated the leftovers)
 
-- Portfolio Drafts tab holds one stale draft ("Weedmaps") — invisible to
-  clients; delete or finish whenever.
-- Video introduction: empty. Only the user can record one; Upwork data says
-  it lifts response rates — worth 60 seconds on a webcam.
-- Testimonials: none. "Request a testimonial" emails a non-Upwork client —
-  user's call (Sizzle manager or a JGI colleague would fit).
-- Settings has "Hide my Upwork earnings" CHECKED — with only $700 shown,
-  hiding may read as evasive, or may usefully hide the small number; user's
-  judgment call, not changed.
+- [x] "Weedmaps" portfolio draft deleted.
+- [x] HealthCalc portfolio item overhauled: fresh light-theme screenshot of
+      healthcalc.xyz (`assets/healthcalc-live.png`, cookie banner cropped
+      out), three outdated dark "Health Check" images removed, description
+      rewritten (56 calculators, clinical formulas, Next.js/TypeScript),
+      skills now Next.js/TypeScript/Tailwind CSS (dropped "Affiliate
+      Marketing Website"), new thumbnail set. Republished.
+- [x] "Hide my Upwork earnings" UNCHECKED — per-job prices already show in
+      work history, so hiding the total hid nothing and looked cagey.
+- [x] Video-intro script written: `video-script.md` (user records it).
+- [ ] Testimonial requests: form needs each client's first/last name +
+      business email (+ optional LinkedIn/title). Message drafted; waiting
+      on the user for 1-2 contacts (Sizzle manager, JGI colleague).
 
 ## Phase 3 — Upwork API (optional; do not block on it)
 
