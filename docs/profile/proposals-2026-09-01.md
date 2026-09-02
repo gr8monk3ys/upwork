@@ -57,3 +57,24 @@ debugging-shaped quick fixes found via broader queries (Next.js/FastAPI/
 full stack, Python/automation). Search those verticals first for fast
 fixed-price work; check every boost auction (both tonight cost 3–6
 Connects for 1st place).
+
+## F) Mac app full-deletion (screen share) — SENT 17:35 PDT, boosted 1st
+
+- Job: "Help Fully Delete an App" (~022094881403131549996), $40–55/hr,
+  US-only, one-time. Proposal id: 2094950089496473601. Bid $45/hr.
+  14 Connects + 7 boost (beat the 6-Connect leader; 10 proposals on the
+  job, all unopened at submit).
+- Client: the best on the board tonight — 882 hires, $135K spent, 4.9 over
+  628 reviews, posts constant 1–2h tech-support tasks. Winning one likely
+  means repeat invitations.
+- Angle: named the three usual causes of a Mac app that will not delete
+  and the full cleanup path (bundle + ~/Library leftovers + LaunchAgents).
+  Screening question about SimplePress answered honestly (no, with general
+  WordPress/deliverability competence noted).
+- Browser gotchas hit: the long-lived tab broke (0x0 viewport, screenshots
+  failing, typed text landing nowhere) — fix is closing the tab and using
+  a fresh one, then re-verifying every field visually; window resize
+  mid-form shifts coordinates, so re-screenshot before each click block.
+  The rate-increase "Never" fix was needed again.
+
+Connects after round: 119 (55 spent tonight across three proposals).
