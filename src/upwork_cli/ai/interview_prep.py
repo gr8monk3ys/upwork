@@ -1,7 +1,5 @@
 """AI-powered interview preparation for Upwork jobs."""
 
-from typing import Optional
-
 from upwork_cli.ai.utils import complete
 
 PREP_PROMPT = """\
@@ -32,7 +30,7 @@ def generate_interview_prep(
     profile_summary: str,
     api_key: str,
     client_research: str = "",
-    model: Optional[str] = None,
+    model: str | None = None,
 ) -> str:
     """Generate interview prep notes for a job.
 

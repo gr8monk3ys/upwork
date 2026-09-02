@@ -6,15 +6,15 @@ import click
 from rich.console import Console
 from rich.table import Table
 
+from upwork_cli.commands.jobs import _format_budget, _truncate
 from upwork_cli.db import (
     PIPELINE_STAGES,
+    get_pipeline_history,
     get_pipeline_jobs,
     get_pipeline_stats,
-    get_pipeline_history,
     init_db,
     set_pipeline_stage,
 )
-from upwork_cli.commands.jobs import _format_budget, _truncate
 
 console = Console()
 

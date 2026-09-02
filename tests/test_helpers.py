@@ -2,18 +2,17 @@
 
 from datetime import datetime, timedelta, timezone
 
-
 from upwork_cli.commands.jobs import (
-    _truncate,
+    _filter_jobs,
     _format_budget,
     _format_skills,
-    _score_color,
-    _filter_jobs,
-    _normalize_search_term,
     _get_saved_search_terms,
+    _normalize_search_term,
+    _score_color,
+    _truncate,
 )
-from upwork_cli.models import JobPosting
 from upwork_cli.config import Settings
+from upwork_cli.models import JobPosting
 
 
 class TestTruncate:

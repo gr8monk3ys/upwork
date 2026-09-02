@@ -5,10 +5,9 @@ from unittest.mock import patch
 
 import pytest
 
+from tests.conftest import mock_anthropic_response
 from upwork_cli.ai.researcher import research_client
 from upwork_cli.ai.utils import AIError
-from tests.conftest import mock_anthropic_response
-
 
 SAMPLE_JSON = json.dumps(
     {

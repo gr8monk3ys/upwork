@@ -1,6 +1,6 @@
 """Upwork API client wrapper supporting both GraphQL and REST endpoints."""
 
-from typing import Any, Optional
+from typing import Any
 
 import upwork
 from upwork.routers import auth as upwork_auth
@@ -13,12 +13,11 @@ from upwork.routers.hr import submissions as hr_submissions
 from upwork.routers.jobs import profile as job_profile
 from upwork.routers.jobs import search as job_search
 from upwork.routers.organization import companies, users
-from upwork.routers.reports.finance import earnings as fin_earnings
-from upwork.routers.reports.finance import billings as fin_billings
 from upwork.routers.reports import time as time_reports
+from upwork.routers.reports.finance import billings as fin_billings
+from upwork.routers.reports.finance import earnings as fin_earnings
 
 from upwork_cli.config import AuthToken, Settings, load_auth, load_settings, save_auth
-
 
 VENDOR_PROPOSALS_QUERY = """
 query vendorProposals(
@@ -246,11 +245,11 @@ class UpworkClient:
     """Wrapper around the official Upwork SDK."""
 
     def __init__(
-        self, settings: Optional[Settings] = None, token: Optional[AuthToken] = None
+        self, settings: Settings | None = None, token: AuthToken | None = None
     ):
         self._settings = settings or load_settings()
         self._token = token or load_auth()
-        self._client: Optional[upwork.Client] = None
+        self._client: upwork.Client | None = None
 
     @property
     def is_authenticated(self) -> bool:
@@ -298,7 +297,7 @@ class UpworkClient:
 
     # --- GraphQL ---
 
-    def graphql(self, query: str, variables: Optional[dict] = None) -> dict[str, Any]:
+    def graphql(self, query: str, variables: dict | None = None) -> dict[str, Any]:
         client = self._ensure_client()
         payload: dict[str, Any] = {"query": query}
         if variables:
@@ -306,7 +305,7 @@ class UpworkClient:
         return upwork_graphql.Api(client).execute(payload)
 
     def _graphql_data(
-        self, query: str, variables: Optional[dict] = None
+        self, query: str, variables: dict | None = None
     ) -> dict[str, Any]:
         result = self.graphql(query, variables)
         errors = result.get("errors") or []
@@ -333,6 +332,8 @@ class UpworkClient:
         sort_order: str = "DESC",
         limit: int = 20,
     ) -> dict[str, Any]:
+        # %-format on purpose: the GraphQL body is full of braces, so
+        # str.format()/f-strings would need every one escaped.
         query = (
             """
         query($searchTerm: String!, $sortField: MarketplaceJobPostingSortField!, $sortOrder: SortOrder!) {
@@ -369,7 +370,7 @@ class UpworkClient:
                 }
             }
         }
-        """
+        """  # noqa: UP031
             % limit
         )
         return self.graphql(
@@ -387,7 +388,7 @@ class UpworkClient:
 
     # --- Proposals / Applications ---
 
-    def get_applications(self, params: Optional[dict] = None) -> dict[str, Any]:
+    def get_applications(self, params: dict | None = None) -> dict[str, Any]:
         params = params or {}
         return self.search_vendor_proposals(
             status=params.get("status", "Accepted"),
@@ -406,7 +407,7 @@ class UpworkClient:
         limit: int = 20,
         sort_field: str = "MODIFIEDDATETIME",
         sort_order: str = "DESC",
-        job_posting_ids: Optional[list[str]] = None,
+        job_posting_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         variables: dict[str, Any] = {
             "filter": {"status_eq": status},
@@ -427,7 +428,7 @@ class UpworkClient:
 
     # --- Offers ---
 
-    def get_offers(self, params: Optional[dict] = None) -> dict[str, Any]:
+    def get_offers(self, params: dict | None = None) -> dict[str, Any]:
         params = params or {}
         return self.list_current_user_offers(
             limit=int(params.get("limit", 20)),
@@ -452,8 +453,8 @@ class UpworkClient:
     def list_current_user_offers(
         self,
         limit: int = 20,
-        state: Optional[str] = None,
-        search_text: Optional[str] = None,
+        state: str | None = None,
+        search_text: str | None = None,
     ) -> dict[str, Any]:
         filter_value: dict[str, Any] = {}
         common_filter: dict[str, Any] = {}
@@ -495,7 +496,7 @@ class UpworkClient:
         return listing.get("offers", [])
 
     def withdraw_offer(
-        self, reference: str, reason: str, message: Optional[str] = None
+        self, reference: str, reason: str, message: str | None = None
     ) -> bool:
         payload: dict[str, Any] = {
             "id": reference,
@@ -508,7 +509,7 @@ class UpworkClient:
 
     # --- Contracts / Engagements ---
 
-    def get_engagements(self, params: Optional[dict] = None) -> dict[str, Any]:
+    def get_engagements(self, params: dict | None = None) -> dict[str, Any]:
         client = self._ensure_client()
         return hr_engagements.Api(client).get_list(params or {})
 
@@ -544,12 +545,12 @@ class UpworkClient:
 
     # --- Messages ---
 
-    def get_rooms(self, company: str, params: Optional[dict] = None) -> dict[str, Any]:
+    def get_rooms(self, company: str, params: dict | None = None) -> dict[str, Any]:
         client = self._ensure_client()
         return upwork_messages.Api(client).get_rooms(company, params or {})
 
     def get_room_messages(
-        self, company: str, room_id: str, params: Optional[dict] = None
+        self, company: str, room_id: str, params: dict | None = None
     ) -> dict[str, Any]:
         client = self._ensure_client()
         return upwork_messages.Api(client).get_room_messages(
@@ -565,7 +566,7 @@ class UpworkClient:
         )
 
     def get_room_by_contract(
-        self, company: str, contract_id: str, params: Optional[dict] = None
+        self, company: str, contract_id: str, params: dict | None = None
     ) -> dict[str, Any]:
         client = self._ensure_client()
         return upwork_messages.Api(client).get_room_by_contract(
@@ -575,13 +576,13 @@ class UpworkClient:
     # --- Earnings / Financials ---
 
     def get_earnings(
-        self, freelancer_ref: str, params: Optional[dict] = None
+        self, freelancer_ref: str, params: dict | None = None
     ) -> dict[str, Any]:
         client = self._ensure_client()
         return fin_earnings.Api(client).get_by_freelancer(freelancer_ref, params or {})
 
     def get_billings(
-        self, freelancer_ref: str, params: Optional[dict] = None
+        self, freelancer_ref: str, params: dict | None = None
     ) -> dict[str, Any]:
         client = self._ensure_client()
         return fin_billings.Api(client).get_by_freelancer(freelancer_ref, params or {})
@@ -589,7 +590,7 @@ class UpworkClient:
     # --- Time Reports ---
 
     def get_time_report(
-        self, freelancer_id: str, params: Optional[dict] = None
+        self, freelancer_id: str, params: dict | None = None
     ) -> dict[str, Any]:
         client = self._ensure_client()
         return time_reports.Api(client).get_by_freelancer_full(

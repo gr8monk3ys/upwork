@@ -2,8 +2,9 @@
 
 import json
 import sqlite3
+from collections.abc import Generator
 from contextlib import contextmanager
-from typing import Any, Generator, Optional
+from typing import Any
 
 from upwork_cli.config import DB_FILE, ensure_config_dir
 
@@ -273,7 +274,7 @@ def set_pipeline_stage_if_not_exists(job_id: str, stage: str) -> None:
         )
 
 
-def get_pipeline_jobs(stage: Optional[str] = None) -> list[dict[str, Any]]:
+def get_pipeline_jobs(stage: str | None = None) -> list[dict[str, Any]]:
     """Get jobs in the pipeline, optionally filtered by stage."""
     with get_connection() as conn:
         if stage:
@@ -337,7 +338,7 @@ def get_pipeline_stats() -> dict[str, Any]:
         }
 
 
-def get_pipeline_history(job_id: Optional[str] = None) -> list[dict[str, Any]]:
+def get_pipeline_history(job_id: str | None = None) -> list[dict[str, Any]]:
     """Get pipeline transition history, optionally for a specific job."""
     with get_connection() as conn:
         if job_id:

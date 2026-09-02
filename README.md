@@ -22,7 +22,7 @@ A Python command-line toolkit for managing your Upwork freelancing workflow from
 
 | Component | Technology |
 |-----------|------------|
-| Language | Python 3.9+ |
+| Language | Python 3.10+ |
 | CLI framework | [Click](https://click.palletsprojects.com/) |
 | Terminal UI | [Rich](https://rich.readthedocs.io/) |
 | Upwork API | [python-upwork-oauth2](https://github.com/upwork/python-upwork) (OAuth2, GraphQL, REST) |
@@ -36,7 +36,7 @@ A Python command-line toolkit for managing your Upwork freelancing workflow from
 
 ### Prerequisites
 
-- Python 3.9 or later
+- Python 3.10 or later
 - An [Upwork API application](https://www.upwork.com/developer/keys/apply) (Client ID + Client Secret)
 - An [Anthropic API key](https://console.anthropic.com/) (optional -- required for AI features)
 

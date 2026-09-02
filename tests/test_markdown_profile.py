@@ -1,7 +1,6 @@
 """Tests for the _parse_markdown_profile() function in commands/config.py."""
 
-from datetime import datetime
-
+from datetime import datetime, timezone
 
 from upwork_cli.commands.config import _parse_markdown_profile
 
@@ -101,7 +100,7 @@ class TestRateAndExperience:
         assert result["experience_years"] == 8
 
     def test_experience_years_from_employment_history(self):
-        current_year = datetime.now().year
+        current_year = datetime.now(timezone.utc).year
         md = "## Employment History\nSenior Dev at Acme Corp (2017 - Present)"
         result = _parse_markdown_profile(md)
         assert result["experience_years"] == current_year - 2017

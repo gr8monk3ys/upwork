@@ -1,7 +1,7 @@
 """AI-powered client research for Upwork jobs."""
 
 import json
-from typing import Any, Optional
+from typing import Any
 
 from upwork_cli.ai.utils import complete, strip_json_fences
 
@@ -43,7 +43,7 @@ def research_client(
     country: str,
     verified: bool,
     api_key: str,
-    model: Optional[str] = None,
+    model: str | None = None,
 ) -> dict[str, Any]:
     """Research a client based on available data.
 

@@ -5,7 +5,6 @@ from unittest.mock import MagicMock
 import pytest
 from click.testing import CliRunner
 
-
 # ---------------------------------------------------------------------------
 # Filesystem isolation
 # ---------------------------------------------------------------------------

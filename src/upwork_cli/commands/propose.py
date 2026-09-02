@@ -1,8 +1,8 @@
 """AI-powered proposal / cover letter generation for Upwork jobs."""
 
 import hashlib
-import os
 import json
+import os
 import shlex
 import subprocess
 import tempfile
@@ -14,20 +14,19 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
 
+from upwork_cli.ai.drafter import draft_proposal, refine_proposal
 from upwork_cli.client import UpworkClient
-from upwork_cli.config import load_settings, load_profile
-from upwork_cli.config import CONFIG_DIR
+from upwork_cli.config import CONFIG_DIR, load_profile, load_settings
 from upwork_cli.db import (
-    init_db,
     get_connection,
-    save_proposal,
     get_proposals,
-    set_pipeline_stage,
-    mark_proposal_outcome,
     get_winning_proposals,
+    init_db,
+    mark_proposal_outcome,
+    save_proposal,
+    set_pipeline_stage,
     upsert_job,
 )
-from upwork_cli.ai.drafter import draft_proposal, refine_proposal
 
 console = Console()
 

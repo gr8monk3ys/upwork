@@ -5,14 +5,14 @@ from unittest.mock import MagicMock, patch
 import anthropic
 import pytest
 
+from tests.conftest import mock_anthropic_response
 from upwork_cli.ai.utils import (
-    AIError,
     DEFAULT_MODEL,
+    AIError,
     complete,
     extract_text,
     strip_json_fences,
 )
-from tests.conftest import mock_anthropic_response
 
 
 class TestStripJsonFences:

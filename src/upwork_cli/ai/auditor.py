@@ -1,7 +1,7 @@
 """AI-powered profile completeness audit using Claude."""
 
 import json
-from typing import Any, Optional
+from typing import Any
 
 from upwork_cli.ai.utils import AIError, complete, strip_json_fences
 
@@ -43,7 +43,7 @@ Respond with ONLY valid JSON in this exact format (no markdown fencing):
 
 
 def audit_profile(
-    profile_text: str, api_key: str, model: Optional[str] = None
+    profile_text: str, api_key: str, model: str | None = None
 ) -> dict[str, Any]:
     """Audit a freelancer profile for completeness and effectiveness.
 

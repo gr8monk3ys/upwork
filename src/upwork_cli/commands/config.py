@@ -2,7 +2,7 @@
 
 import re
 import webbrowser
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import click
@@ -16,9 +16,9 @@ from upwork_cli.config import (
     AUTH_FILE,
     DB_FILE,
     PROFILE_FILE,
+    SECRET_ENV_MAP,
     SETTINGS_FILE,
     Profile,
-    SECRET_ENV_MAP,
     _get_secret_source,
     _set_secret,
     ensure_config_dir,
@@ -192,7 +192,7 @@ def _parse_markdown_profile(text: str) -> dict:
                         r"(\d{4})\s*[-–]\s*(Present|\d{4})", sections[key]
                     )
                     if year_ranges:
-                        current_year = datetime.now().year
+                        current_year = datetime.now(timezone.utc).year
                         total = 0
                         for start, end in year_ranges:
                             end_year = current_year if end == "Present" else int(end)
@@ -342,8 +342,12 @@ def status():
     if auth:
         table.add_row("Auth status", "[green]Authenticated[/green]")
         if auth.expires_at:
-            expiry = datetime.fromtimestamp(auth.expires_at)
-            if expiry > datetime.now():
+            # Epoch seconds from the OAuth server; convert via UTC, then
+            # render in the local zone for display.
+            expiry = datetime.fromtimestamp(
+                auth.expires_at, tz=timezone.utc
+            ).astimezone()
+            if expiry > datetime.now(timezone.utc):
                 table.add_row("Token expiry", expiry.strftime("%Y-%m-%d %H:%M:%S"))
             else:
                 table.add_row(
@@ -420,7 +424,7 @@ def status():
                         )
                     )
         except Exception:
-            pass
+            console.print("[dim](could not fetch user details)[/dim]")
 
 
 @config.group("secrets", invoke_without_command=True)

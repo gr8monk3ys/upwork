@@ -1,7 +1,5 @@
 """Extract winning patterns from past proposals to build a style guide."""
 
-from typing import Optional
-
 from upwork_cli.ai.utils import complete
 
 LEARNER_PROMPT = """\
@@ -24,7 +22,7 @@ generating future proposals (use imperative voice).
 
 
 def extract_winning_patterns(
-    proposals: list[dict], api_key: str, model: Optional[str] = None
+    proposals: list[dict], api_key: str, model: str | None = None
 ) -> str:
     """Analyze winning proposals and extract a style guide.
 
