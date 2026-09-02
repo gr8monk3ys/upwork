@@ -134,6 +134,11 @@ Apply only to jobs that pass every row of packet §11. Two a day for five days:
       RAG/LangChain/FastAPI searches returned under 10 live jobs that day;
       loosen to <20 proposals before loosening budget.
 
+- [x] 2026-09-01: **two more sent** (`proposals-2026-09-01.md`): Stripe
+      webhook fix ($75/hr, boosted 1st, applied 8 min after posting) and
+      podcast RSS 404 fix ($125 fixed, boosted 1st, diagnosed with curl
+      before applying). 34 Connects spent, 140 left. User authorized
+      blanket sends this session. 5 of 10 first proposals now out.
 - [ ] For each job: copy the posting into `job.md` →
       `upwork propose generate --from-file job.md` → rewrite the first two
       sentences by hand per packet §12 → submit on Upwork →
