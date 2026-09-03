@@ -177,6 +177,52 @@ class Contract:
 
 
 @dataclass
+class Room:
+    """A message conversation.
+
+    The API returns rooms in several shapes -- keys differ, and single
+    results arrive unwrapped -- so ``from_api`` is where those differences
+    are absorbed rather than at each display site.
+    """
+
+    id: str
+    participants: list[str] = field(default_factory=list)
+    last_message: str = ""
+    updated_at: str = ""
+
+    @classmethod
+    def from_api(cls, data: dict[str, Any]) -> "Room":
+        roster = data.get("roster") or []
+        if isinstance(roster, dict):
+            roster = roster.get("user") or []
+        if isinstance(roster, dict):
+            roster = [roster]
+
+        recent = data.get("recentMessage", data.get("lastMessage")) or {}
+        if isinstance(recent, str):
+            preview = recent
+        else:
+            preview = recent.get("message", recent.get("text", "")) or ""
+
+        return cls(
+            id=str(data.get("roomId", data.get("id", "")) or ""),
+            participants=[
+                u.get("name") or u.get("userId") or "Unknown"
+                for u in roster
+                if isinstance(u, dict)
+            ],
+            last_message=preview,
+            updated_at=str(
+                data.get(
+                    "roomUpdatedDate",
+                    data.get("updatedAt", data.get("updated_at", "")),
+                )
+                or ""
+            ),
+        )
+
+
+@dataclass
 class Message:
     id: str
     room_id: str
@@ -201,3 +247,20 @@ class Message:
             content=data.get("message", data.get("text", "")),
             created_at=data.get("createdAt", data.get("created_at", "")),
         )
+
+
+@dataclass
+class Conversation:
+    """A room's messages together with who is reading them.
+
+    Carrying the viewer alongside the messages means a caller never has to
+    look up its own user id before rendering, and a Message is never asked
+    a question -- "is this mine?" -- that it cannot answer on its own.
+    """
+
+    room_id: str
+    messages: list[Message] = field(default_factory=list)
+    viewer_id: str = ""
+
+    def is_own(self, message: Message) -> bool:
+        return bool(self.viewer_id) and message.sender_id == self.viewer_id
