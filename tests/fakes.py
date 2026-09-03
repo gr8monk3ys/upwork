@@ -33,6 +33,8 @@ class FakeUpworkClient:
         offers: Any = None,
         offer: Any = None,
         offers_for_application: Any = None,
+        search_results: Any = None,
+        job_detail: Any = None,
     ) -> None:
         self.is_authenticated = authenticated
         self._companies = (
@@ -57,7 +59,14 @@ class FakeUpworkClient:
         self._offers_for_application = (
             offers_for_application if offers_for_application is not None else []
         )
+        self._search_results = (
+            search_results
+            if search_results is not None
+            else {"data": {"marketplaceJobPostings": {"edges": []}}}
+        )
+        self._job_detail = job_detail if job_detail is not None else {}
         self.earnings_params: list[Any] = []
+        self.searches: list[tuple[str, int]] = []
         self.application_queries: list[Any] = []
         self.offer_queries: list[Any] = []
         self.withdrawn: list[tuple[str, str, Any]] = []
@@ -96,6 +105,17 @@ class FakeUpworkClient:
     ) -> Any:
         self.earnings_params.append(params)
         return self._answer(self._earnings)
+
+    # --- the jobs slice of the interface ---
+
+    def search_jobs_graphql(
+        self, search_term: str, limit: int = 20, **kwargs: Any
+    ) -> Any:
+        self.searches.append((search_term, limit))
+        return self._answer(self._search_results)
+
+    def get_job_detail(self, job_key: str) -> Any:
+        return self._answer(self._job_detail)
 
     # --- the applications and offers slice of the interface ---
 
@@ -271,4 +291,32 @@ def offer_node(
         "company": {"name": client_name},
         "offerTerms": terms,
         "lastUpdatedDateTime": "2026-09-02T10:00:00Z",
+    }
+
+
+def job_search_payload(*nodes: Any) -> dict[str, Any]:
+    """A marketplace search result as the GraphQL API returns it."""
+    return {"data": {"marketplaceJobPostings": {"edges": [{"node": n} for n in nodes]}}}
+
+
+def job_node(
+    job_id: str = "~01job",
+    *,
+    title: str = "Build a FastAPI service",
+    amount: str | None = "5000",
+    engagement: str = "30+ hrs/week",
+    skills: list[str] | None = None,
+    country: str = "United States",
+    created: str = "2026-09-01T10:00:00Z",
+) -> dict[str, Any]:
+    """One job posting node as the GraphQL API returns it."""
+    return {
+        "id": job_id,
+        "title": title,
+        "description": "Build it well.",
+        "skills": [{"prettyName": s} for s in (skills or ["Python", "FastAPI"])],
+        "amount": {"amount": amount, "currencyCode": "USD"} if amount else {},
+        "engagement": engagement,
+        "createdDateTime": created,
+        "client": {"location": {"country": country}, "verificationStatus": "VERIFIED"},
     }
