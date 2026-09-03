@@ -1,6 +1,5 @@
 """CLI commands for setting up and managing Upwork CLI configuration."""
 
-import re
 import webbrowser
 from datetime import datetime, timezone
 from pathlib import Path
@@ -48,160 +47,6 @@ SECRET_CLI_NAMES = {
 # ---------------------------------------------------------------------------
 # Markdown profile parser
 # ---------------------------------------------------------------------------
-
-
-def _parse_markdown_profile(text: str) -> dict:
-    """Parse a markdown file with ## headings into profile fields.
-
-    Supported headings (case-insensitive):
-        ## Professional Title
-        ## Professional Overview
-        ## Skills to Add
-        ## Hourly Rate Suggestion
-        ## Portfolio / ## Portfolio Entries
-        ## Employment History / ## Experience (for experience_years)
-    """
-    sections: dict[str, str] = {}
-    current_heading: str | None = None
-    lines_buffer: list[str] = []
-
-    for line in text.splitlines():
-        heading_match = re.match(r"^##\s+(.+)$", line)
-        if heading_match:
-            # Store the previous section
-            if current_heading is not None:
-                sections[current_heading] = "\n".join(lines_buffer).strip()
-            current_heading = heading_match.group(1).strip().lower()
-            lines_buffer = []
-        else:
-            lines_buffer.append(line)
-
-    # Store the last section
-    if current_heading is not None:
-        sections[current_heading] = "\n".join(lines_buffer).strip()
-
-    profile_data: dict = {}
-
-    # Title — strip markdown bold and surrounding whitespace/rules
-    for key in ("professional title", "title"):
-        if key in sections:
-            title = sections[key].strip()
-            title = re.sub(r"^---+\s*", "", title).strip()
-            title = re.sub(r"\s*---+$", "", title).strip()
-            title = title.strip("*")  # Remove bold markers
-            profile_data["title"] = title
-            break
-
-    # Overview — strip trailing horizontal rules
-    for key in ("professional overview", "overview"):
-        if key in sections:
-            overview = sections[key].strip()
-            overview = re.sub(r"\s*---+\s*$", "", overview).strip()
-            profile_data["overview"] = overview
-            break
-
-    # Skills — expect bullet list or comma-separated
-    for key in ("skills to add", "skills"):
-        if key in sections:
-            raw = sections[key]
-            skills: list[str] = []
-            for sline in raw.splitlines():
-                sline = sline.strip()
-                # Skip sub-headings (### Category Name) and horizontal rules
-                if re.match(r"^#{1,6}\s+", sline) or sline.startswith("---"):
-                    continue
-                # Strip leading bullet markers
-                sline = re.sub(r"^[-*]\s*", "", sline)
-                sline = sline.strip()
-                if not sline:
-                    continue
-                # If line contains commas, split on them
-                if "," in sline:
-                    skills.extend(s.strip() for s in sline.split(",") if s.strip())
-                else:
-                    skills.append(sline)
-            profile_data["skills"] = skills
-            break
-
-    # Hourly rate — extract the dollar range
-    for key in ("hourly rate suggestion", "hourly rate"):
-        if key in sections:
-            rate_text = sections[key].strip()
-            # Try to extract $XX-$XX/hr pattern
-            rate_match = re.search(r"\$[\d,]+\s*[-–]\s*\$[\d,]+/hr", rate_text)
-            if rate_match:
-                profile_data["hourly_rate"] = rate_match.group(0)
-            else:
-                profile_data["hourly_rate"] = re.sub(
-                    r"\s*---+\s*$", "", rate_text
-                ).strip()
-            break
-
-    # Portfolio
-    for key in ("portfolio entries", "portfolio"):
-        if key in sections:
-            raw = sections[key]
-            portfolio: list[dict[str, str]] = []
-            current_name: str | None = None
-            current_desc_lines: list[str] = []
-
-            for pline in raw.splitlines():
-                pline_stripped = pline.strip()
-                # Sub-heading (### or bold **name**)
-                sub_match = re.match(r"^###\s+(.+)$", pline_stripped) or re.match(
-                    r"^\*\*(.+?)\*\*$", pline_stripped
-                )
-                if sub_match:
-                    if current_name is not None:
-                        portfolio.append(
-                            {
-                                "name": current_name,
-                                "description": "\n".join(current_desc_lines).strip(),
-                            }
-                        )
-                    current_name = sub_match.group(1).strip()
-                    current_desc_lines = []
-                elif pline_stripped:
-                    cleaned = re.sub(r"^[-*]\s*", "", pline_stripped)
-                    current_desc_lines.append(cleaned)
-
-            if current_name is not None:
-                portfolio.append(
-                    {
-                        "name": current_name,
-                        "description": "\n".join(current_desc_lines).strip(),
-                    }
-                )
-
-            if portfolio:
-                profile_data["portfolio"] = portfolio
-            break
-
-    # Experience years — extract from overview ("X+ years") or employment history date ranges
-    if "experience_years" not in profile_data:
-        overview_text = profile_data.get("overview", "")
-        years_match = re.search(r"(\d+)\+?\s*years?\b", overview_text, re.IGNORECASE)
-        if years_match:
-            profile_data["experience_years"] = int(years_match.group(1))
-        else:
-            # Fall back to employment history / experience sections
-            for key in ("employment history", "experience"):
-                if key in sections:
-                    # Look for year ranges like "2017 - Present" or "2019 - 2022"
-                    year_ranges = re.findall(
-                        r"(\d{4})\s*[-–]\s*(Present|\d{4})", sections[key]
-                    )
-                    if year_ranges:
-                        current_year = datetime.now(timezone.utc).year
-                        total = 0
-                        for start, end in year_ranges:
-                            end_year = current_year if end == "Present" else int(end)
-                            total = max(total, end_year - int(start))
-                        if total > 0:
-                            profile_data["experience_years"] = total
-                    break
-
-    return profile_data
 
 
 def _describe_secret_source(secret_key: str) -> str:
@@ -510,21 +355,12 @@ def profile(file_path: str | None):
 
         if ext == ".md":
             console.print(f"Parsing Markdown profile from [bold]{path}[/bold]...")
-            text = path.read_text(encoding="utf-8")
-            data = _parse_markdown_profile(text)
-            if not data:
+            prof = Profile.from_markdown(path.read_text(encoding="utf-8"))
+            if prof.is_empty:
                 console.print(
                     "[red]Could not extract profile fields from the Markdown file.[/red]"
                 )
                 raise SystemExit(1)
-            prof = Profile(
-                title=data.get("title", ""),
-                overview=data.get("overview", ""),
-                skills=data.get("skills", []),
-                portfolio=data.get("portfolio", []),
-                hourly_rate=data.get("hourly_rate", ""),
-                experience_years=data.get("experience_years", 0),
-            )
         elif ext in (".yaml", ".yml"):
             console.print(f"Loading YAML profile from [bold]{path}[/bold]...")
             raw = yaml.safe_load(path.read_text(encoding="utf-8"))
