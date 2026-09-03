@@ -180,16 +180,24 @@ class Contract:
 class Message:
     id: str
     room_id: str
-    sender: str = ""
+    sender_id: str = ""
+    sender_name: str = ""
     content: str = ""
     created_at: str = ""
 
+    @property
+    def sender_label(self) -> str:
+        """Best available way to name the sender when displaying the message."""
+        return self.sender_name or self.sender_id or "Unknown"
+
     @classmethod
     def from_api(cls, data: dict[str, Any], room_id: str = "") -> "Message":
+        user = data.get("user") or {}
         return cls(
             id=data.get("id", ""),
             room_id=room_id,
-            sender=data.get("userId", data.get("user", {}).get("name", "")),
+            sender_id=str(data.get("userId") or user.get("id") or ""),
+            sender_name=user.get("name") or "",
             content=data.get("message", data.get("text", "")),
             created_at=data.get("createdAt", data.get("created_at", "")),
         )

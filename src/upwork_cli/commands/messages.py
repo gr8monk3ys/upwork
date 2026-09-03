@@ -171,8 +171,8 @@ def read_messages(room_id: str, limit: int) -> None:
 
     for entry in stories:
         msg = Message.from_api(entry, room_id=room_id)
-        sender_id = entry.get("userId", entry.get("user", {}).get("id", ""))
-        sender_name = msg.sender or "Unknown"
+        sender_id = msg.sender_id
+        sender_name = msg.sender_label
         timestamp = msg.created_at
         content = msg.content
 
@@ -301,8 +301,8 @@ def find_room(contract: str, limit: int) -> None:
 
     for entry in stories:
         msg = Message.from_api(entry, room_id=str(room_id))
-        sender_id = entry.get("userId", entry.get("user", {}).get("id", ""))
-        sender_name = msg.sender or "Unknown"
+        sender_id = msg.sender_id
+        sender_name = msg.sender_label
         timestamp = msg.created_at
         content = msg.content
 
