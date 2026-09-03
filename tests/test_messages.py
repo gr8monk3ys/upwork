@@ -1,12 +1,18 @@
-"""Tests for the messages commands."""
+"""CLI-level tests for the messages command group.
 
-from unittest.mock import MagicMock, patch
+Payload handling is covered in test_messaging.py through the module's own
+interface. What is left here is what the commands themselves decide:
+rendering, confirmation prompts, exit codes and empty states.
+"""
+
+from unittest.mock import patch
 
 import pytest
 from click.testing import CliRunner
 
+from tests.fakes import FakeUpworkClient, message_payload, room_payload
 from upwork_cli.cli import cli
-from upwork_cli.db import init_db
+from upwork_cli.client import NotAuthenticated
 
 
 @pytest.fixture
@@ -14,311 +20,135 @@ def runner():
     return CliRunner()
 
 
-def _make_mock_client(authenticated=True):
-    """Create a mock UpworkClient with basic stubs."""
-    client = MagicMock()
-    client.is_authenticated = authenticated
-    client.get_user_info.return_value = {"info": {"ref": "~user001"}}
-    client.get_companies.return_value = {
-        "companies": {"company": [{"company_id": "comp-123"}]}
-    }
-    return client
+def _run(runner, args, client=None, **fake_kwargs):
+    """Invoke the CLI with a fake client behind the single construction site."""
+    client = client if client is not None else FakeUpworkClient(**fake_kwargs)
+    with patch("upwork_cli.commands.messages.get_client", return_value=client):
+        return runner.invoke(cli, args)
 
 
-# ---------------------------------------------------------------------------
-# Helper tests
-# ---------------------------------------------------------------------------
-
-
-class TestGetCompany:
-    @patch("upwork_cli.commands.messages.UpworkClient")
-    def test_nested_dict_structure(self, MockClient, runner, isolated_config):
-        from upwork_cli.commands.messages import _get_company
-
-        client = _make_mock_client()
-        result = _get_company(client)
-        assert result == "comp-123"
-
-    @patch("upwork_cli.commands.messages.UpworkClient")
-    def test_list_structure(self, MockClient, runner, isolated_config):
-        from upwork_cli.commands.messages import _get_company
-
-        client = _make_mock_client()
-        client.get_companies.return_value = {"companies": [{"company_id": "comp-456"}]}
-        result = _get_company(client)
-        assert result == "comp-456"
-
-    @patch("upwork_cli.commands.messages.UpworkClient")
-    def test_empty_raises_system_exit(self, MockClient, runner, isolated_config):
-        from upwork_cli.commands.messages import _get_company
-
-        client = _make_mock_client()
-        client.get_companies.return_value = {"companies": {"company": []}}
-        with pytest.raises(SystemExit):
-            _get_company(client)
-
-    @patch("upwork_cli.commands.messages.UpworkClient")
-    def test_api_error_raises_system_exit(self, MockClient, runner, isolated_config):
-        from upwork_cli.commands.messages import _get_company
-
-        client = _make_mock_client()
-        client.get_companies.side_effect = Exception("API error")
-        with pytest.raises(SystemExit):
-            _get_company(client)
-
-
-class TestGetUserId:
-    @patch("upwork_cli.commands.messages.UpworkClient")
-    def test_happy_path(self, MockClient, runner, isolated_config):
-        from upwork_cli.commands.messages import _get_user_id
-
-        client = _make_mock_client()
-        result = _get_user_id(client)
-        assert result == "~user001"
-
-    @patch("upwork_cli.commands.messages.UpworkClient")
-    def test_error_returns_empty(self, MockClient, runner, isolated_config):
-        from upwork_cli.commands.messages import _get_user_id
-
-        client = _make_mock_client()
-        client.get_user_info.side_effect = Exception("fail")
-        result = _get_user_id(client)
-        assert result == ""
-
-
-# ---------------------------------------------------------------------------
-# List rooms
-# ---------------------------------------------------------------------------
+class TestAuthentication:
+    def test_unauthenticated_reports_and_exits(self, runner, isolated_config):
+        with patch(
+            "upwork_cli.commands.messages.get_client",
+            side_effect=NotAuthenticated("nope"),
+        ):
+            result = runner.invoke(cli, ["messages", "list"])
+        assert result.exit_code == 1
+        assert "Not authenticated" in result.output
 
 
 class TestListRooms:
-    @patch("upwork_cli.commands.messages.UpworkClient")
-    def test_not_authenticated(self, MockClient, runner, isolated_config):
-        init_db()
-        MockClient.return_value = _make_mock_client(authenticated=False)
-        result = runner.invoke(cli, ["messages", "list"])
-        assert result.exit_code != 0
-        assert "Not authenticated" in result.output
-
-    @patch("upwork_cli.commands.messages.UpworkClient")
-    def test_happy_path(self, MockClient, runner, isolated_config):
-        init_db()
-        client = _make_mock_client()
-        client.get_rooms.return_value = {
-            "rooms": [
-                {
-                    "roomId": "room-001",
-                    "roster": [{"name": "Alice"}, {"name": "Bob"}],
-                    "recentMessage": {"message": "Hello there!"},
-                    "roomUpdatedDate": "2025-01-15T10:00:00Z",
-                }
-            ]
-        }
-        MockClient.return_value = client
-        result = runner.invoke(cli, ["messages", "list"])
+    def test_renders_a_table(self, runner, isolated_config):
+        result = _run(
+            runner,
+            ["messages", "list"],
+            rooms={"rooms": [room_payload("r-1", participants=["Dana Reyes"])]},
+        )
         assert result.exit_code == 0
-        assert "Recent Conversations" in result.output
-        assert "room-001" in result.output
+        assert "r-1" in result.output
+        assert "Dana Reyes" in result.output
+        assert "Hello there" in result.output
 
-    @patch("upwork_cli.commands.messages.UpworkClient")
-    def test_empty_rooms(self, MockClient, runner, isolated_config):
-        init_db()
-        client = _make_mock_client()
-        client.get_rooms.return_value = {"rooms": []}
-        MockClient.return_value = client
-        result = runner.invoke(cli, ["messages", "list"])
+    def test_empty_state(self, runner, isolated_config):
+        result = _run(runner, ["messages", "list"], rooms={"rooms": []})
         assert result.exit_code == 0
-        assert "No conversations" in result.output
+        assert "No conversations found" in result.output
 
-    @patch("upwork_cli.commands.messages.UpworkClient")
-    def test_dict_normalization(self, MockClient, runner, isolated_config):
-        """Rooms API sometimes returns a dict instead of a list for single room."""
-        init_db()
-        client = _make_mock_client()
-        client.get_rooms.return_value = {
-            "rooms": {
-                "room": [
-                    {
-                        "roomId": "room-single",
-                        "roster": [{"name": "Solo"}],
-                        "recentMessage": {"message": "Hi"},
-                        "roomUpdatedDate": "2025-01-15",
-                    }
-                ]
-            }
-        }
-        MockClient.return_value = client
-        result = runner.invoke(cli, ["messages", "list"])
-        assert result.exit_code == 0
-        assert "room-single" in result.output
-
-    @patch("upwork_cli.commands.messages.UpworkClient")
-    def test_limit_param(self, MockClient, runner, isolated_config):
-        init_db()
-        client = _make_mock_client()
-        client.get_rooms.return_value = {"rooms": []}
-        MockClient.return_value = client
-        result = runner.invoke(cli, ["messages", "list", "--limit", "5"])
-        assert result.exit_code == 0
-
-
-# ---------------------------------------------------------------------------
-# Read messages
-# ---------------------------------------------------------------------------
+    def test_api_failure_exits_nonzero(self, runner, isolated_config):
+        result = _run(runner, ["messages", "list"], rooms=RuntimeError("boom"))
+        assert result.exit_code == 1
+        assert "fetch rooms" in result.output
 
 
 class TestReadMessages:
-    @patch("upwork_cli.commands.messages.UpworkClient")
-    def test_happy_path(self, MockClient, runner, isolated_config):
-        init_db()
-        client = _make_mock_client()
-        client.get_room_messages.return_value = {
-            "stories": [
-                {
-                    "userId": "~other",
-                    "user": {"name": "Alice"},
-                    "message": "Can you start today?",
-                    "created_time": "2025-01-15T10:00:00Z",
-                },
-                {
-                    "userId": "~user001",
-                    "user": {"name": "Me"},
-                    "message": "Sure thing!",
-                    "created_time": "2025-01-15T10:05:00Z",
-                },
-            ]
-        }
-        MockClient.return_value = client
-        result = runner.invoke(cli, ["messages", "read", "room-001"])
-        assert result.exit_code == 0
-        assert "room-001" in result.output
-
-    @patch("upwork_cli.commands.messages.UpworkClient")
-    def test_empty_stories(self, MockClient, runner, isolated_config):
-        init_db()
-        client = _make_mock_client()
-        client.get_room_messages.return_value = {"stories": []}
-        MockClient.return_value = client
-        result = runner.invoke(cli, ["messages", "read", "room-empty"])
-        assert result.exit_code == 0
-        assert "No messages" in result.output
-
-    @patch("upwork_cli.commands.messages.UpworkClient")
-    def test_dict_normalization(self, MockClient, runner, isolated_config):
-        """Messages API sometimes returns a dict wrapping for stories."""
-        init_db()
-        client = _make_mock_client()
-        client.get_room_messages.return_value = {
-            "stories": {
-                "story": [
-                    {
-                        "userId": "~other",
-                        "user": {"name": "Alice"},
-                        "message": "Hello",
-                        "created_time": "2025-01-15",
-                    }
+    def test_marks_own_messages(self, runner, isolated_config):
+        result = _run(
+            runner,
+            ["messages", "read", "r-1"],
+            user_id="~me",
+            messages={
+                "stories": [
+                    message_payload("m1", sender_id="~me", sender_name="Me"),
+                    message_payload("m2", sender_id="~them", sender_name="Dana Reyes"),
                 ]
-            }
-        }
-        MockClient.return_value = client
-        result = runner.invoke(cli, ["messages", "read", "room-dict"])
+            },
+        )
         assert result.exit_code == 0
+        assert "(you)" in result.output
+        assert "Dana Reyes" in result.output
 
-    @patch("upwork_cli.commands.messages.UpworkClient")
-    def test_api_error(self, MockClient, runner, isolated_config):
-        init_db()
-        client = _make_mock_client()
-        client.get_room_messages.side_effect = Exception("API down")
-        MockClient.return_value = client
-        result = runner.invoke(cli, ["messages", "read", "room-fail"])
-        assert result.exit_code != 0
-        assert "Failed to fetch messages" in result.output
+    def test_shows_names_not_ids(self, runner, isolated_config):
+        """Regression: the sender's raw user id used to be displayed."""
+        result = _run(
+            runner,
+            ["messages", "read", "r-1"],
+            messages={
+                "stories": [
+                    message_payload(sender_id="~01ab99", sender_name="Dana Reyes")
+                ]
+            },
+        )
+        assert "Dana Reyes" in result.output
+        assert "~01ab99" not in result.output
 
+    def test_empty_state(self, runner, isolated_config):
+        result = _run(runner, ["messages", "read", "r-1"], messages={"stories": []})
+        assert result.exit_code == 0
+        assert "No messages found" in result.output
 
-# ---------------------------------------------------------------------------
-# Send message
-# ---------------------------------------------------------------------------
+    def test_api_failure_exits_nonzero(self, runner, isolated_config):
+        result = _run(
+            runner, ["messages", "read", "r-1"], messages=RuntimeError("nope")
+        )
+        assert result.exit_code == 1
 
 
 class TestSendMessage:
-    @patch("upwork_cli.commands.messages.UpworkClient")
-    def test_success_with_confirm(self, MockClient, runner, isolated_config):
-        init_db()
-        client = _make_mock_client()
-        client.send_message.return_value = {}
-        MockClient.return_value = client
-        result = runner.invoke(
-            cli, ["messages", "send", "room-001", "Hello!"], input="y\n"
-        )
+    def test_confirmed_send_reaches_the_client(self, runner, isolated_config):
+        client = FakeUpworkClient()
+        with patch("upwork_cli.commands.messages.get_client", return_value=client):
+            result = runner.invoke(
+                cli, ["messages", "send", "r-1", "hello"], input="y\n"
+            )
         assert result.exit_code == 0
-        assert "sent successfully" in result.output
+        assert client.sent == [("comp-123", "r-1", {"message": "hello"})]
+        assert "Message sent successfully" in result.output
 
-    @patch("upwork_cli.commands.messages.UpworkClient")
-    def test_user_cancels(self, MockClient, runner, isolated_config):
-        init_db()
-        client = _make_mock_client()
-        MockClient.return_value = client
-        result = runner.invoke(
-            cli, ["messages", "send", "room-001", "Hello!"], input="n\n"
-        )
+    def test_declined_send_does_nothing(self, runner, isolated_config):
+        client = FakeUpworkClient()
+        with patch("upwork_cli.commands.messages.get_client", return_value=client):
+            result = runner.invoke(cli, ["messages", "send", "r-1", "hi"], input="n\n")
         assert result.exit_code == 0
-        assert "not sent" in result.output
-
-    @patch("upwork_cli.commands.messages.UpworkClient")
-    def test_api_error(self, MockClient, runner, isolated_config):
-        init_db()
-        client = _make_mock_client()
-        client.send_message.side_effect = Exception("Network error")
-        MockClient.return_value = client
-        result = runner.invoke(
-            cli, ["messages", "send", "room-001", "Hello!"], input="y\n"
-        )
-        assert result.exit_code != 0
-        assert "Failed to send" in result.output
-
-
-# ---------------------------------------------------------------------------
-# Find room
-# ---------------------------------------------------------------------------
+        assert client.sent == []
+        assert "not sent" in result.output.lower()
 
 
 class TestFindRoom:
-    @patch("upwork_cli.commands.messages.UpworkClient")
-    def test_found_with_messages(self, MockClient, runner, isolated_config):
-        init_db()
-        client = _make_mock_client()
-        client.get_room_by_contract.return_value = {"room": {"roomId": "room-found"}}
-        client.get_room_messages.return_value = {
-            "stories": [
-                {
-                    "userId": "~other",
-                    "user": {"name": "Alice"},
-                    "message": "Let's discuss scope.",
-                    "created_time": "2025-01-15",
-                }
-            ]
-        }
-        MockClient.return_value = client
-        result = runner.invoke(cli, ["messages", "find", "--contract", "~eng001"])
+    def test_found_with_messages(self, runner, isolated_config):
+        result = _run(
+            runner,
+            ["messages", "find", "--contract", "c-1"],
+            room_by_contract={"room": room_payload("r-7")},
+            messages={"stories": [message_payload(text="Latest news")]},
+        )
         assert result.exit_code == 0
-        assert "room-found" in result.output
+        assert "r-7" in result.output
+        assert "Latest news" in result.output
 
-    @patch("upwork_cli.commands.messages.UpworkClient")
-    def test_not_found(self, MockClient, runner, isolated_config):
-        init_db()
-        client = _make_mock_client()
-        client.get_room_by_contract.return_value = {"room": {}}
-        MockClient.return_value = client
-        result = runner.invoke(cli, ["messages", "find", "--contract", "~eng999"])
+    def test_not_found(self, runner, isolated_config):
+        result = _run(
+            runner,
+            ["messages", "find", "--contract", "c-1"],
+            room_by_contract={"room": {}},
+        )
         assert result.exit_code == 0
         assert "No room found" in result.output
 
-    @patch("upwork_cli.commands.messages.UpworkClient")
-    def test_api_error(self, MockClient, runner, isolated_config):
-        init_db()
-        client = _make_mock_client()
-        client.get_room_by_contract.side_effect = Exception("fail")
-        MockClient.return_value = client
-        result = runner.invoke(cli, ["messages", "find", "--contract", "~eng001"])
-        assert result.exit_code != 0
-        assert "Failed to find room" in result.output
+    def test_api_failure_exits_nonzero(self, runner, isolated_config):
+        result = _run(
+            runner,
+            ["messages", "find", "--contract", "c-1"],
+            room_by_contract=RuntimeError("gone"),
+        )
+        assert result.exit_code == 1

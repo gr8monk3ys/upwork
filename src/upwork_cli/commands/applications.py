@@ -5,8 +5,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from upwork_cli.client import UpworkClient
-from upwork_cli.config import load_settings
+from upwork_cli.client import NotAuthenticated, UpworkClient, get_client
 
 console = Console()
 
@@ -53,13 +52,12 @@ WITHDRAW_REASONS = {
 
 
 def _get_client() -> UpworkClient:
-    """Create and validate an authenticated Upwork client."""
-    settings = load_settings()
-    client = UpworkClient(settings=settings)
-    if not client.is_authenticated:
+    """Return an authenticated client, reporting the failure to the terminal."""
+    try:
+        return get_client()
+    except NotAuthenticated:
         console.print(f"\n[red]{AUTH_ERROR_MESSAGE}[/red]\n")
-        raise SystemExit(1)
-    return client
+        raise SystemExit(1) from None
 
 
 def _format_money(money: dict | None) -> str:

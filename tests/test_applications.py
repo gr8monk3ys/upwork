@@ -6,6 +6,7 @@ import pytest
 from click.testing import CliRunner
 
 from upwork_cli.cli import cli
+from upwork_cli.client import NotAuthenticated
 from upwork_cli.db import init_db
 
 
@@ -122,15 +123,15 @@ def _make_mock_client(authenticated: bool = True) -> MagicMock:
 
 
 class TestApplicationsCommands:
-    @patch("upwork_cli.commands.applications.UpworkClient")
+    @patch("upwork_cli.commands.applications.get_client")
     def test_list_requires_auth(self, MockClient, runner, isolated_config):
         init_db()
-        MockClient.return_value = _make_mock_client(authenticated=False)
+        MockClient.side_effect = NotAuthenticated("not authenticated")
         result = runner.invoke(cli, ["applications", "list"])
         assert result.exit_code != 0
         assert "Not authenticated" in result.output
 
-    @patch("upwork_cli.commands.applications.UpworkClient")
+    @patch("upwork_cli.commands.applications.get_client")
     def test_list_happy_path(self, MockClient, runner, isolated_config):
         init_db()
         client = _make_mock_client()
@@ -148,7 +149,7 @@ class TestApplicationsCommands:
             }
         )
 
-    @patch("upwork_cli.commands.applications.UpworkClient")
+    @patch("upwork_cli.commands.applications.get_client")
     def test_show_happy_path(self, MockClient, runner, isolated_config):
         init_db()
         MockClient.return_value = _make_mock_client()
@@ -158,7 +159,7 @@ class TestApplicationsCommands:
         assert "Cover Letter" in result.output
         assert "Related Offers" in result.output
 
-    @patch("upwork_cli.commands.applications.UpworkClient")
+    @patch("upwork_cli.commands.applications.get_client")
     def test_default_group_invokes_list(self, MockClient, runner, isolated_config):
         init_db()
         MockClient.return_value = _make_mock_client()
@@ -168,7 +169,7 @@ class TestApplicationsCommands:
 
 
 class TestOffersCommands:
-    @patch("upwork_cli.commands.applications.UpworkClient")
+    @patch("upwork_cli.commands.applications.get_client")
     def test_list_happy_path(self, MockClient, runner, isolated_config):
         init_db()
         client = _make_mock_client()
@@ -179,7 +180,7 @@ class TestOffersCommands:
         assert "offer-001" in result.output
         client.get_offers.assert_called_with({"limit": 20, "state": "Pending"})
 
-    @patch("upwork_cli.commands.applications.UpworkClient")
+    @patch("upwork_cli.commands.applications.get_client")
     def test_show_happy_path(self, MockClient, runner, isolated_config):
         init_db()
         MockClient.return_value = _make_mock_client()
@@ -188,7 +189,7 @@ class TestOffersCommands:
         assert "Backend Retainer" in result.output
         assert "Client Message" in result.output
 
-    @patch("upwork_cli.commands.applications.UpworkClient")
+    @patch("upwork_cli.commands.applications.get_client")
     def test_withdraw_cancelled(self, MockClient, runner, isolated_config):
         init_db()
         client = _make_mock_client()
@@ -198,7 +199,7 @@ class TestOffersCommands:
         assert "Offer not withdrawn" in result.output
         client.withdraw_offer.assert_not_called()
 
-    @patch("upwork_cli.commands.applications.UpworkClient")
+    @patch("upwork_cli.commands.applications.get_client")
     def test_withdraw_with_yes(self, MockClient, runner, isolated_config):
         init_db()
         client = _make_mock_client()

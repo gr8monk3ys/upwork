@@ -192,6 +192,32 @@ class TestMessage:
         }
         m = Message.from_api(data, room_id="room-1")
         assert m.id == "msg-1"
-        assert m.sender == "user-42"
+        assert m.sender_id == "user-42"
+        assert m.sender_name == ""
+        assert m.sender_label == "user-42"
         assert m.content == "Hello!"
         assert m.room_id == "room-1"
+
+    def test_prefers_the_name_for_display(self):
+        """Regression: the display name was overwritten by the raw user id."""
+        m = Message.from_api(
+            {
+                "id": "msg-2",
+                "userId": "~01ab99",
+                "user": {"id": "~01ab99", "name": "Dana Reyes"},
+                "message": "Hi",
+            },
+            room_id="room-1",
+        )
+        assert m.sender_id == "~01ab99"
+        assert m.sender_name == "Dana Reyes"
+        assert m.sender_label == "Dana Reyes"
+
+    def test_falls_back_to_id_then_unknown(self):
+        assert Message.from_api({"id": "m", "userId": "~x"}).sender_label == "~x"
+        assert Message.from_api({"id": "m"}).sender_label == "Unknown"
+
+    def test_id_comes_from_nested_user_when_absent(self):
+        m = Message.from_api({"id": "m", "user": {"id": "~nested", "name": "Sam"}})
+        assert m.sender_id == "~nested"
+        assert m.sender_name == "Sam"

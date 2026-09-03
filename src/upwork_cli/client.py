@@ -6,15 +6,10 @@ import upwork
 from upwork.routers import auth as upwork_auth
 from upwork.routers import graphql as upwork_graphql
 from upwork.routers import messages as upwork_messages
-from upwork.routers.hr import contracts as hr_contracts
 from upwork.routers.hr import engagements as hr_engagements
-from upwork.routers.hr import milestones as hr_milestones
 from upwork.routers.hr import submissions as hr_submissions
 from upwork.routers.jobs import profile as job_profile
-from upwork.routers.jobs import search as job_search
-from upwork.routers.organization import companies, users
-from upwork.routers.reports import time as time_reports
-from upwork.routers.reports.finance import billings as fin_billings
+from upwork.routers.organization import companies
 from upwork.routers.reports.finance import earnings as fin_earnings
 
 from upwork_cli.config import AuthToken, Settings, load_auth, load_settings, save_auth
@@ -297,7 +292,7 @@ class UpworkClient:
 
     # --- GraphQL ---
 
-    def graphql(self, query: str, variables: dict | None = None) -> dict[str, Any]:
+    def _graphql(self, query: str, variables: dict | None = None) -> dict[str, Any]:
         client = self._ensure_client()
         payload: dict[str, Any] = {"query": query}
         if variables:
@@ -307,7 +302,7 @@ class UpworkClient:
     def _graphql_data(
         self, query: str, variables: dict | None = None
     ) -> dict[str, Any]:
-        result = self.graphql(query, variables)
+        result = self._graphql(query, variables)
         errors = result.get("errors") or []
         if errors:
             messages = []
@@ -320,10 +315,6 @@ class UpworkClient:
         return result.get("data", {})
 
     # --- Job Search ---
-
-    def search_jobs(self, params: dict[str, Any]) -> dict[str, Any]:
-        client = self._ensure_client()
-        return job_search.Api(client).find(params)
 
     def search_jobs_graphql(
         self,
@@ -373,7 +364,7 @@ class UpworkClient:
         """  # noqa: UP031
             % limit
         )
-        return self.graphql(
+        return self._graphql(
             query,
             {
                 "searchTerm": search_term,
@@ -390,7 +381,7 @@ class UpworkClient:
 
     def get_applications(self, params: dict | None = None) -> dict[str, Any]:
         params = params or {}
-        return self.search_vendor_proposals(
+        return self._search_vendor_proposals(
             status=params.get("status", "Accepted"),
             limit=int(params.get("limit", 20)),
             sort_field=params.get("sort_field", "MODIFIEDDATETIME"),
@@ -399,9 +390,9 @@ class UpworkClient:
         )
 
     def get_application(self, reference: str) -> dict[str, Any]:
-        return self.get_vendor_proposal(reference)
+        return self._get_vendor_proposal(reference)
 
-    def search_vendor_proposals(
+    def _search_vendor_proposals(
         self,
         status: str = "Accepted",
         limit: int = 20,
@@ -422,7 +413,7 @@ class UpworkClient:
         data = self._graphql_data(VENDOR_PROPOSALS_QUERY, variables)
         return data.get("vendorProposals", {})
 
-    def get_vendor_proposal(self, reference: str) -> dict[str, Any]:
+    def _get_vendor_proposal(self, reference: str) -> dict[str, Any]:
         data = self._graphql_data(VENDOR_PROPOSAL_QUERY, {"id": reference})
         return data.get("vendorProposal", {})
 
@@ -430,27 +421,13 @@ class UpworkClient:
 
     def get_offers(self, params: dict | None = None) -> dict[str, Any]:
         params = params or {}
-        return self.list_current_user_offers(
+        return self._list_current_user_offers(
             limit=int(params.get("limit", 20)),
             state=params.get("state"),
             search_text=params.get("search_text"),
         )
 
-    def respond_to_offer(
-        self, reference: str, params: dict[str, Any]
-    ) -> dict[str, Any]:
-        action = (params or {}).get("action", "").lower()
-        if action != "withdraw":
-            raise RuntimeError(
-                "Legacy REST offer actions are deprecated upstream. "
-                "Only GraphQL-based withdraw is implemented."
-            )
-        reason = params.get("reason", "Other")
-        message = params.get("messageToClient") or params.get("message")
-        success = self.withdraw_offer(reference, reason=reason, message=message)
-        return {"success": success}
-
-    def list_current_user_offers(
+    def _list_current_user_offers(
         self,
         limit: int = 20,
         state: str | None = None,
@@ -517,27 +494,7 @@ class UpworkClient:
         client = self._ensure_client()
         return hr_engagements.Api(client).get_specific(reference)
 
-    def suspend_contract(
-        self, reference: str, params: dict[str, Any]
-    ) -> dict[str, Any]:
-        client = self._ensure_client()
-        return hr_contracts.Api(client).suspend_contract(reference, params)
-
-    def restart_contract(
-        self, reference: str, params: dict[str, Any]
-    ) -> dict[str, Any]:
-        client = self._ensure_client()
-        return hr_contracts.Api(client).restart_contract(reference, params)
-
-    def end_contract(self, reference: str, params: dict[str, Any]) -> dict[str, Any]:
-        client = self._ensure_client()
-        return hr_contracts.Api(client).end_contract(reference, params)
-
     # --- Milestones ---
-
-    def get_active_milestone(self, contract_id: str) -> dict[str, Any]:
-        client = self._ensure_client()
-        return hr_milestones.Api(client).get_active_milestone(contract_id)
 
     def submit_work(self, params: dict[str, Any]) -> dict[str, Any]:
         client = self._ensure_client()
@@ -581,28 +538,31 @@ class UpworkClient:
         client = self._ensure_client()
         return fin_earnings.Api(client).get_by_freelancer(freelancer_ref, params or {})
 
-    def get_billings(
-        self, freelancer_ref: str, params: dict | None = None
-    ) -> dict[str, Any]:
-        client = self._ensure_client()
-        return fin_billings.Api(client).get_by_freelancer(freelancer_ref, params or {})
-
     # --- Time Reports ---
 
-    def get_time_report(
-        self, freelancer_id: str, params: dict | None = None
-    ) -> dict[str, Any]:
-        client = self._ensure_client()
-        return time_reports.Api(client).get_by_freelancer_full(
-            freelancer_id, params or {}
-        )
-
     # --- Organization ---
-
-    def get_my_info(self) -> dict[str, Any]:
-        client = self._ensure_client()
-        return users.Api(client).get_my_info()
 
     def get_companies(self) -> dict[str, Any]:
         client = self._ensure_client()
         return companies.Api(client).get_list()
+
+
+class NotAuthenticated(RuntimeError):
+    """Raised when a client is requested before OAuth setup has been completed."""
+
+
+def get_client() -> UpworkClient:
+    """Return an authenticated client, or raise.
+
+    The single construction site for the Upwork API. Commands call this
+    rather than building a client themselves, so tests substitute one
+    implementation here instead of patching the name in every module that
+    imports it.
+    """
+    client = UpworkClient(settings=load_settings())
+    if not client.is_authenticated:
+        raise NotAuthenticated(
+            "Not authenticated. Run 'upwork config setup' to configure your "
+            "API credentials."
+        )
+    return client
