@@ -27,6 +27,7 @@ from upwork_cli.db import (
     set_pipeline_stage,
     upsert_job,
 )
+from upwork_cli.models import JobPosting
 
 console = Console()
 
@@ -133,7 +134,7 @@ def _job_from_description(text: str, title: str | None, job_id: str | None) -> d
         digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:8]
         job_id = f"manual-{digest}"
 
-    upsert_job({"id": job_id, "title": title, "description": text})
+    upsert_job(JobPosting(id=job_id, title=title, description=text))
     return {"id": job_id, "title": title, "description": text}
 
 
@@ -244,10 +245,8 @@ def generate(
             client = UpworkClient(settings=settings)
             job_data = client.get_job_detail(job_id)
             # Persist to DB for future use
-            from upwork_cli.models import JobPosting
-
             posting = JobPosting.from_rest(job_data)
-            upsert_job(posting.to_db_dict())
+            upsert_job(posting)
             job = _get_job_from_db(job_id)
         except Exception as exc:
             console.print(f"[red]Failed to fetch job {job_id}:[/red] {exc}")

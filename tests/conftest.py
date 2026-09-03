@@ -5,6 +5,8 @@ from unittest.mock import MagicMock
 import pytest
 from click.testing import CliRunner
 
+from upwork_cli.models import JobPosting
+
 # ---------------------------------------------------------------------------
 # Filesystem isolation
 # ---------------------------------------------------------------------------
@@ -79,7 +81,7 @@ def cli_runner():
 
 
 def _make_job_dict(**overrides) -> dict:
-    """Return a minimal valid job dict for ``upsert_job``."""
+    """Return a minimal valid job dict (the shape a ``jobs`` row holds)."""
     base = {
         "id": "~01abc123",
         "title": "Python Developer Needed",
@@ -159,6 +161,11 @@ def _make_rss_entry(**overrides) -> dict:
     }
     base.update(overrides)
     return base
+
+
+def _make_job_posting(**overrides) -> JobPosting:
+    """Return a minimal valid ``JobPosting`` for ``upsert_job``."""
+    return JobPosting(**_make_job_dict(**overrides))
 
 
 @pytest.fixture
