@@ -5,6 +5,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
+from tests.fakes import (
+    FakeUpworkClient,
+    earning_cells,
+    earning_flat,
+    earnings_payload,
+)
 from upwork_cli.cli import cli
 from upwork_cli.client import NotAuthenticated
 from upwork_cli.db import init_db
@@ -13,6 +19,13 @@ from upwork_cli.db import init_db
 @pytest.fixture
 def runner():
     return CliRunner()
+
+
+def _run(runner, args, client=None, **fake_kwargs):
+    """Invoke the CLI with a fake client behind the single construction site."""
+    client = client if client is not None else FakeUpworkClient(**fake_kwargs)
+    with patch("upwork_cli.commands.earnings.get_client", return_value=client):
+        return runner.invoke(cli, args)
 
 
 def _make_mock_client(authenticated=True):
@@ -78,171 +91,124 @@ class TestFormatCurrency:
         assert "$1,000,000.00" == result
 
 
-class TestGetFreelancerRef:
-    @patch("upwork_cli.commands.earnings.get_client")
-    def test_happy_path(self, MockClient, runner, isolated_config):
-        from upwork_cli.commands.earnings import _get_freelancer_ref
-
-        client = _make_mock_client()
-        ref = _get_freelancer_ref(client)
-        assert ref == "~freelancer123"
-
-    @patch("upwork_cli.commands.earnings.get_client")
-    def test_fallback_ref(self, MockClient, runner, isolated_config):
-        from upwork_cli.commands.earnings import _get_freelancer_ref
-
-        client = _make_mock_client()
-        client.get_user_info.return_value = {"id": "alt-ref-456"}
-        ref = _get_freelancer_ref(client)
-        assert ref == "alt-ref-456"
-
-    @patch("upwork_cli.commands.earnings.get_client")
-    def test_error_raises_system_exit(self, MockClient, runner, isolated_config):
-        from upwork_cli.commands.earnings import _get_freelancer_ref
-
-        client = _make_mock_client()
-        client.get_user_info.side_effect = Exception("API down")
-        with pytest.raises(SystemExit):
-            _get_freelancer_ref(client)
-
-
-# ---------------------------------------------------------------------------
-# Earnings summary command
-# ---------------------------------------------------------------------------
-
-
 class TestSummaryCommand:
-    @patch("upwork_cli.commands.earnings.get_client")
-    def test_not_authenticated(self, MockClient, runner, isolated_config):
-        init_db()
-        MockClient.side_effect = NotAuthenticated("not authenticated")
-        result = runner.invoke(cli, ["earnings", "summary"])
-        assert result.exit_code != 0
+    def test_not_authenticated(self, runner, isolated_config):
+        with patch(
+            "upwork_cli.commands.earnings.get_client",
+            side_effect=NotAuthenticated("nope"),
+        ):
+            result = runner.invoke(cli, ["earnings", "summary"])
+        assert result.exit_code == 1
         assert "Not authenticated" in result.output
 
-    @patch("upwork_cli.commands.earnings.get_client")
-    def test_happy_path_with_data(self, MockClient, runner, isolated_config):
-        init_db()
-        client = _make_mock_client()
-        client.get_earnings.return_value = {
-            "table": {
-                "rows": [
-                    {"amount": 500.0, "date": "2025-01-10"},
-                    {"amount": 1200.0, "date": "2025-01-15"},
-                ]
-            }
-        }
-        MockClient.return_value = client
-        result = runner.invoke(cli, ["earnings", "summary"])
+    def test_renders_totals(self, runner, isolated_config):
+        result = _run(
+            runner,
+            ["earnings", "summary"],
+            earnings=earnings_payload(
+                earning_cells(date="2026-09-01", amount="1200.00"),
+                earning_cells(date="2020-01-01", amount="300.00"),
+            ),
+        )
         assert result.exit_code == 0
-        assert "Earnings Summary" in result.output
-        assert "Total Earned" in result.output
+        assert "$1,500.00" in result.output
 
-    @patch("upwork_cli.commands.earnings.get_client")
-    def test_empty_data(self, MockClient, runner, isolated_config):
-        init_db()
-        client = _make_mock_client()
-        client.get_earnings.return_value = {"table": {"rows": []}}
-        MockClient.return_value = client
-        result = runner.invoke(cli, ["earnings", "summary"])
+    def test_empty_data(self, runner, isolated_config):
+        result = _run(runner, ["earnings", "summary"], earnings=earnings_payload())
         assert result.exit_code == 0
-        assert "No earnings data" in result.output
+        assert "No earnings data available yet" in result.output
 
-    @patch("upwork_cli.commands.earnings.get_client")
-    def test_api_failure(self, MockClient, runner, isolated_config):
-        init_db()
-        client = _make_mock_client()
-        client.get_earnings.side_effect = Exception("timeout")
-        MockClient.return_value = client
-        result = runner.invoke(cli, ["earnings", "summary"])
-        assert result.exit_code != 0
-        assert "Failed to fetch earnings" in result.output
-
-
-# ---------------------------------------------------------------------------
-# Earnings report command
-# ---------------------------------------------------------------------------
+    def test_api_failure(self, runner, isolated_config):
+        result = _run(
+            runner, ["earnings", "summary"], earnings=RuntimeError("upstream")
+        )
+        assert result.exit_code == 1
+        assert "fetch earnings" in result.output
 
 
 class TestReportCommand:
-    @patch("upwork_cli.commands.earnings.get_client")
-    def test_table_format(self, MockClient, runner, isolated_config):
-        init_db()
-        client = _make_mock_client()
-        client.get_earnings.return_value = {
-            "table": {
-                "cols": [
-                    {"label": "Date"},
-                    {"label": "Client"},
-                    {"label": "Contract"},
-                    {"label": "Amount"},
-                    {"label": "Type"},
-                ],
-                "rows": [
-                    {
-                        "c": [
-                            {"v": "2025-01-10"},
-                            {"v": "Acme Corp"},
-                            {"v": "API Dev"},
-                            {"v": "500.00"},
-                            {"v": "Hourly"},
-                        ]
-                    }
-                ],
-            }
-        }
-        MockClient.return_value = client
-        result = runner.invoke(cli, ["earnings", "report"])
-        assert result.exit_code == 0
-        assert "Earnings Report" in result.output
-
-    @patch("upwork_cli.commands.earnings.get_client")
-    def test_csv_format(self, MockClient, runner, isolated_config):
-        init_db()
-        client = _make_mock_client()
-        client.get_earnings.return_value = {
-            "rows": [
-                {
-                    "date": "2025-01-10",
-                    "client": "Acme",
-                    "contract": "Dev",
-                    "amount": "500",
-                    "type": "Hourly",
-                }
-            ]
-        }
-        MockClient.return_value = client
-        result = runner.invoke(cli, ["earnings", "report", "--format", "csv"])
-        assert result.exit_code == 0
-        assert "Date" in result.output
-        assert "500" in result.output
-
-    @patch("upwork_cli.commands.earnings.get_client")
-    def test_date_filtering(self, MockClient, runner, isolated_config):
-        init_db()
-        client = _make_mock_client()
-        client.get_earnings.return_value = {"rows": []}
-        MockClient.return_value = client
-        result = runner.invoke(
-            cli, ["earnings", "report", "--from", "2025-01-01", "--to", "2025-01-31"]
+    def test_table_format(self, runner, isolated_config):
+        result = _run(
+            runner,
+            ["earnings", "report"],
+            earnings=earnings_payload(
+                earning_cells(client="Acme Corp", amount="1200.00")
+            ),
         )
         assert result.exit_code == 0
-        assert "No earnings found" in result.output
+        assert "Acme Corp" in result.output
 
-    @patch("upwork_cli.commands.earnings.get_client")
-    def test_empty_report(self, MockClient, runner, isolated_config):
-        init_db()
-        client = _make_mock_client()
-        client.get_earnings.return_value = {"table": {"rows": []}}
-        MockClient.return_value = client
-        result = runner.invoke(cli, ["earnings", "report"])
+    def test_uses_the_reports_own_column_labels(self, runner, isolated_config):
+        result = _run(
+            runner,
+            ["earnings", "report"],
+            earnings=earnings_payload(
+                earning_cells(), cols=["When", "Who", "What", "Amt", "Kind"]
+            ),
+        )
+        assert "When" in result.output
+
+    def test_csv_format(self, runner, isolated_config):
+        result = _run(
+            runner,
+            ["earnings", "report", "--format", "csv"],
+            earnings=earnings_payload(
+                earning_cells(date="2026-09-01", client="Acme Corp")
+            ),
+        )
+        assert result.exit_code == 0
+        assert "2026-09-01,Acme Corp" in result.output
+
+    def test_date_filtering_reaches_the_client(self, runner, isolated_config):
+        client = FakeUpworkClient(earnings=earnings_payload(earning_cells()))
+        _run(
+            runner,
+            ["earnings", "report", "--from", "2026-01-01", "--to", "2026-06-30"],
+            client=client,
+        )
+        assert client.earnings_params == [
+            {"tq": "date >= '2026-01-01' AND date <= '2026-06-30'"}
+        ]
+
+    def test_empty_report(self, runner, isolated_config):
+        result = _run(runner, ["earnings", "report"], earnings=earnings_payload())
         assert result.exit_code == 0
         assert "No earnings found" in result.output
 
+    def test_flat_rows_render_too(self, runner, isolated_config):
+        result = _run(
+            runner,
+            ["earnings", "report"],
+            earnings={"rows": [earning_flat(client="Beta LLC")]},
+        )
+        assert "Beta LLC" in result.output
 
-# ---------------------------------------------------------------------------
-# Contracts commands
-# ---------------------------------------------------------------------------
+
+class TestExportCommand:
+    def test_writes_a_csv(self, runner, isolated_config, tmp_path):
+        out = tmp_path / "earnings.csv"
+        result = _run(
+            runner,
+            ["earnings", "export", "--output", str(out)],
+            earnings=earnings_payload(
+                earning_cells(date="2026-09-01", client="Acme Corp")
+            ),
+        )
+        assert result.exit_code == 0
+        text = out.read_text()
+        assert text.splitlines()[0] == "Date,Client,Contract,Amount,Type"
+        assert "2026-09-01,Acme Corp" in text
+
+    def test_nothing_to_export(self, runner, isolated_config, tmp_path):
+        out = tmp_path / "earnings.csv"
+        result = _run(
+            runner,
+            ["earnings", "export", "--output", str(out)],
+            earnings=earnings_payload(),
+        )
+        assert result.exit_code == 0
+        assert "No earnings data to export" in result.output
+        assert not out.exists()
 
 
 class TestContractsCommands:

@@ -6,6 +6,16 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
+def _to_float(value: Any, default: float = 0.0) -> float:
+    """Coerce an API value to a float, falling back rather than raising."""
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return default
+
+
 @dataclass
 class JobPosting:
     id: str
@@ -235,6 +245,82 @@ class Contract:
             total_hours=data.get("hours_per_week"),
             total_charge=data.get("total_charge", {}).get("amount"),
         )
+
+
+@dataclass
+class EarningRow:
+    """One line of an earnings report.
+
+    The API returns rows three ways: a Google-Charts style object with a
+    ``c`` list of ``{"v": value}`` cells, a flat object with named keys, or
+    a bare list of values in column order. ``from_api`` absorbs all three so
+    no caller has to.
+    """
+
+    date: str = ""
+    client: str = ""
+    contract: str = ""
+    amount: float = 0.0
+    kind: str = ""
+
+    #: Column order used by the bare-list and cell-array shapes.
+    COLUMNS = ("Date", "Client", "Contract", "Amount", "Type")
+
+    @classmethod
+    def from_api(cls, row: Any) -> "EarningRow":
+        if isinstance(row, dict):
+            cells = row.get("c")
+            if isinstance(cells, list) and cells:
+                values = [
+                    (c or {}).get("v", "") if isinstance(c, dict) else c for c in cells
+                ]
+                return cls._from_values(values)
+            return cls(
+                date=str(row.get("date", row.get("worked_on", "")) or ""),
+                client=str(row.get("client", row.get("buyer_company_name", "")) or ""),
+                contract=str(
+                    row.get("contract", row.get("engagement_title", "")) or ""
+                ),
+                amount=_to_float(
+                    row.get("amount", row.get("charge_amount", row.get("total_charge")))
+                ),
+                kind=str(row.get("type", row.get("subtype", "")) or ""),
+            )
+        if isinstance(row, list):
+            return cls._from_values(row)
+        return cls()
+
+    @classmethod
+    def _from_values(cls, values: list[Any]) -> "EarningRow":
+        def at(i: int) -> str:
+            return str(values[i]) if i < len(values) else ""
+
+        return cls(
+            date=at(0),
+            client=at(1),
+            contract=at(2),
+            amount=_to_float(values[3] if len(values) > 3 else None),
+            kind=at(4),
+        )
+
+    def as_cells(self) -> list[str]:
+        """The row as display/CSV cells, in ``COLUMNS`` order."""
+        return [
+            self.date,
+            self.client,
+            self.contract,
+            f"{self.amount:.2f}" if self.amount else "",
+            self.kind,
+        ]
+
+
+@dataclass
+class EarningsSummary:
+    """Totals over a set of earning rows."""
+
+    total: float = 0.0
+    this_month: float = 0.0
+    this_week: float = 0.0
 
 
 @dataclass

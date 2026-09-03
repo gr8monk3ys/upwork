@@ -27,6 +27,7 @@ class FakeUpworkClient:
         rooms: Any = None,
         messages: Any = None,
         room_by_contract: Any = None,
+        earnings: Any = None,
     ) -> None:
         self.is_authenticated = authenticated
         self._companies = (
@@ -42,7 +43,9 @@ class FakeUpworkClient:
         self._room_by_contract = (
             room_by_contract if room_by_contract is not None else {"room": {}}
         )
+        self._earnings = earnings if earnings is not None else {"table": {"rows": []}}
         self.sent: list[tuple[str, str, dict[str, Any]]] = []
+        self.earnings_params: list[Any] = []
 
     @staticmethod
     def _answer(value: Any) -> Any:
@@ -70,6 +73,14 @@ class FakeUpworkClient:
         self, company: str, contract_id: str, params: dict[str, Any] | None = None
     ) -> Any:
         return self._answer(self._room_by_contract)
+
+    # --- the earnings slice of the interface ---
+
+    def get_earnings(
+        self, freelancer_ref: str, params: dict[str, Any] | None = None
+    ) -> Any:
+        self.earnings_params.append(params)
+        return self._answer(self._earnings)
 
     def send_message(
         self, company: str, room_id: str, params: dict[str, Any]
@@ -111,4 +122,42 @@ def message_payload(
         "user": {"id": sender_id, "name": sender_name},
         "message": text,
         "createdAt": created,
+    }
+
+
+def earnings_payload(*rows: Any, cols: list[str] | None = None) -> dict[str, Any]:
+    """An earnings report as the API returns it, Google-Charts style."""
+    payload: dict[str, Any] = {"table": {"rows": list(rows)}}
+    if cols is not None:
+        payload["table"]["cols"] = [{"label": c} for c in cols]
+    return payload
+
+
+def earning_cells(
+    date: str = "2026-09-01",
+    client: str = "Acme Corp",
+    contract: str = "API work",
+    amount: str = "1200.00",
+    kind: str = "Fixed",
+) -> dict[str, Any]:
+    """One row in the cell-array shape."""
+    return {
+        "c": [{"v": date}, {"v": client}, {"v": contract}, {"v": amount}, {"v": kind}]
+    }
+
+
+def earning_flat(
+    date: str = "2026-09-01",
+    client: str = "Acme Corp",
+    contract: str = "API work",
+    amount: str = "1200.00",
+    kind: str = "Fixed",
+) -> dict[str, Any]:
+    """The same row in the flat-dict shape."""
+    return {
+        "date": date,
+        "buyer_company_name": client,
+        "engagement_title": contract,
+        "charge_amount": amount,
+        "subtype": kind,
     }
