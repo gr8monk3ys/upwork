@@ -9,7 +9,10 @@ from tests.conftest import _make_job_posting
 from upwork_cli.db import (
     get_bookmarks,
     get_connection,
+    get_job,
     get_jobs_with_scores,
+    get_latest_proposal,
+    get_proposal,
     get_proposals,
     init_db,
     is_seen,
@@ -88,6 +91,19 @@ class TestUpsertJob:
         assert rows[0].job.client_verified is True
 
 
+class TestGetJob:
+    def test_returns_a_posting(self, isolated_config):
+        init_db()
+        job = _make_job_posting()
+        upsert_job(job)
+
+        assert get_job(job.id) == job
+
+    def test_returns_none_when_absent(self, isolated_config):
+        init_db()
+        assert get_job("nope") is None
+
+
 class TestScores:
     def test_save_and_get_score(self, isolated_config):
         init_db()
@@ -135,6 +151,41 @@ class TestProposals:
         assert len(proposals) == 2
         contents = {p["content"] for p in proposals}
         assert contents == {"First", "Second"}
+
+
+class TestProposalLookup:
+    def test_get_proposal_by_id(self, isolated_config):
+        init_db()
+        job = _make_job_posting()
+        upsert_job(job)
+        pid = save_proposal(job.id, job.title, "Cover letter body")
+
+        found = get_proposal(pid)
+        assert found is not None
+        assert found["content"] == "Cover letter body"
+
+    def test_get_proposal_returns_none_when_absent(self, isolated_config):
+        init_db()
+        assert get_proposal(999) is None
+
+    def test_latest_proposal_is_the_most_recent(self, isolated_config):
+        init_db()
+        job = _make_job_posting()
+        upsert_job(job)
+        save_proposal(job.id, job.title, "older")
+        with get_connection() as conn:
+            conn.execute(
+                "UPDATE proposals SET created_at = '2020-01-01' WHERE content = 'older'"
+            )
+        save_proposal(job.id, job.title, "newer")
+
+        latest = get_latest_proposal()
+        assert latest is not None
+        assert latest["content"] == "newer"
+
+    def test_latest_proposal_none_when_empty(self, isolated_config):
+        init_db()
+        assert get_latest_proposal() is None
 
 
 class TestBookmarks:

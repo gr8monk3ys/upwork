@@ -185,6 +185,24 @@ def get_bookmarks() -> list[dict[str, Any]]:
         return [dict(r) for r in rows]
 
 
+def get_proposal(proposal_id: int) -> dict[str, Any | None]:
+    """Look up a single stored proposal, or None if there is no such id."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM proposals WHERE id = ?", (proposal_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def get_latest_proposal() -> dict[str, Any | None]:
+    """Return the most recently created proposal, or None if there are none."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM proposals ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+        return dict(row) if row else None
+
+
 def get_proposals(limit: int = 20) -> list[dict[str, Any]]:
     with get_connection() as conn:
         rows = conn.execute(

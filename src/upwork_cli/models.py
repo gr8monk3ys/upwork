@@ -179,8 +179,9 @@ class JobPosting:
             parts.append(f"Skills: {', '.join(self.skills)}")
         if self.budget_amount:
             parts.append(f"Budget: ${self.budget_amount:,.0f} {self.budget_currency}")
-        if self.duration_label:
-            parts.append(f"Duration: {self.duration_label}")
+        duration = self.duration_label or self.duration
+        if duration:
+            parts.append(f"Duration: {duration}")
         if self.engagement:
             parts.append(f"Engagement: {self.engagement}")
         if self.client_country:
