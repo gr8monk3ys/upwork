@@ -198,25 +198,18 @@ class JobPosting:
 
 
 @dataclass
-class ScoredJob:
-    """A cached job posting together with its AI score, if it has one.
+class ScoreResult:
+    """The outcome of one attempt to score a Job against the Profile.
 
-    ``score`` is ``None`` for a job that has not been scored yet, which is
-    what ``jobs score`` selects on.
+    ``score`` is None when the attempt failed and ``error`` says why. A
+    failed attempt is never persisted, so a transient API failure cannot
+    permanently bury a job.
     """
 
     job: JobPosting
     score: int | None = None
     reasoning: str = ""
-
-    @classmethod
-    def from_db_row(cls, row: Mapping[str, Any]) -> "ScoredJob":
-        row = dict(row)
-        return cls(
-            job=JobPosting.from_db_row(row),
-            score=row.get("score"),
-            reasoning=row.get("reasoning") or "",
-        )
+    error: str = ""
 
 
 @dataclass
