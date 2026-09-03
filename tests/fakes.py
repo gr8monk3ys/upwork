@@ -28,6 +28,11 @@ class FakeUpworkClient:
         messages: Any = None,
         room_by_contract: Any = None,
         earnings: Any = None,
+        applications: Any = None,
+        application: Any = None,
+        offers: Any = None,
+        offer: Any = None,
+        offers_for_application: Any = None,
     ) -> None:
         self.is_authenticated = authenticated
         self._companies = (
@@ -45,7 +50,17 @@ class FakeUpworkClient:
         )
         self._earnings = earnings if earnings is not None else {"table": {"rows": []}}
         self.sent: list[tuple[str, str, dict[str, Any]]] = []
+        self._applications = applications if applications is not None else {"edges": []}
+        self._application = application if application is not None else {}
+        self._offers = offers if offers is not None else {"edges": []}
+        self._offer = offer if offer is not None else {}
+        self._offers_for_application = (
+            offers_for_application if offers_for_application is not None else []
+        )
         self.earnings_params: list[Any] = []
+        self.application_queries: list[Any] = []
+        self.offer_queries: list[Any] = []
+        self.withdrawn: list[tuple[str, str, Any]] = []
 
     @staticmethod
     def _answer(value: Any) -> Any:
@@ -81,6 +96,33 @@ class FakeUpworkClient:
     ) -> Any:
         self.earnings_params.append(params)
         return self._answer(self._earnings)
+
+    # --- the applications and offers slice of the interface ---
+
+    def get_applications(self, params: dict[str, Any] | None = None) -> Any:
+        self.application_queries.append(params)
+        return self._answer(self._applications)
+
+    def get_application(self, reference: str) -> Any:
+        return self._answer(self._application)
+
+    def get_offers_for_application(self, reference: str, limit: int = 10) -> Any:
+        return self._answer(self._offers_for_application)
+
+    def get_offers(self, params: dict[str, Any] | None = None) -> Any:
+        self.offer_queries.append(params)
+        return self._answer(self._offers)
+
+    def get_offer(self, reference: str) -> Any:
+        return self._answer(self._offer)
+
+    def withdraw_offer(
+        self, reference: str, reason: str, message: str | None = None
+    ) -> bool:
+        if isinstance(self._offer, Exception):
+            raise self._offer
+        self.withdrawn.append((reference, reason, message))
+        return True
 
     def send_message(
         self, company: str, room_id: str, params: dict[str, Any]
@@ -160,4 +202,73 @@ def earning_flat(
         "engagement_title": contract,
         "charge_amount": amount,
         "subtype": kind,
+    }
+
+
+def connection(*nodes: Any) -> dict[str, Any]:
+    """Wrap nodes as a GraphQL connection payload."""
+    return {"edges": [{"node": n} for n in nodes]}
+
+
+def application_node(
+    application_id: str = "app-1",
+    *,
+    status: str = "Submitted",
+    job_title: str = "Build an API",
+    cover_letter: str = "I would be a great fit.",
+    created: str = "2026-09-01T10:00:00Z",
+    modified: str = "2026-09-02T10:00:00Z",
+) -> dict[str, Any]:
+    """One application as the GraphQL API returns it."""
+    return {
+        "id": application_id,
+        "status": {"status": status},
+        "proposalCoverLetter": cover_letter,
+        "auditDetails": {
+            "createdDateTime": created,
+            "modifiedDateTime": modified,
+            "statusChangedDateTime": modified,
+        },
+        "marketplaceJobPosting": {
+            "id": "job-1",
+            "title": job_title,
+            "amount": {"amount": "3000", "currencyCode": "USD"},
+        },
+    }
+
+
+def offer_node(
+    offer_id: str = "offer-1",
+    *,
+    title: str = "Backend work",
+    state: str = "ACTIVE",
+    kind: str = "FIXED",
+    client_name: str = "Acme Corp",
+    budget: str | None = "5000",
+    hourly_rate: str | None = None,
+    weekly_limit: int | None = None,
+) -> dict[str, Any]:
+    """One offer as the GraphQL API returns it, wrapped as a connection node."""
+    if hourly_rate is not None:
+        terms: dict[str, Any] = {
+            "hourlyTerms": {
+                "rate": {"amount": hourly_rate, "currencyCode": "USD"},
+                "weeklyHoursLimit": weekly_limit,
+            }
+        }
+    elif budget is not None:
+        terms = {
+            "fixedPriceTerm": {"budget": {"amount": budget, "currencyCode": "USD"}}
+        }
+    else:
+        terms = {}
+
+    return {
+        "offer": {"id": offer_id},
+        "title": title,
+        "state": state,
+        "type": kind,
+        "company": {"name": client_name},
+        "offerTerms": terms,
+        "lastUpdatedDateTime": "2026-09-02T10:00:00Z",
     }

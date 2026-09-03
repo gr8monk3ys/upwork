@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
-def _to_float(value: Any, default: float = 0.0) -> float:
+def _to_float(value: Any, default: float | None = 0.0) -> float | None:
     """Coerce an API value to a float, falling back rather than raising."""
     if value is None:
         return default
@@ -220,6 +220,149 @@ class ScoreResult:
     score: int | None = None
     reasoning: str = ""
     error: str = ""
+
+
+@dataclass
+class OfferTerms:
+    """What an offer pays: a fixed budget, or an hourly rate and cap.
+
+    Carries the number and its currency rather than a formatted string, so
+    rendering stays with the caller.
+    """
+
+    amount: float | None = None
+    currency: str = "USD"
+    weekly_hours_limit: int | None = None
+    is_fixed: bool = False
+    start_date: str = ""
+    end_date: str = ""
+
+    @classmethod
+    def from_api(cls, terms: dict[str, Any] | None) -> "OfferTerms":
+        terms = terms or {}
+        dates = {
+            "start_date": str(terms.get("expectedStartDate", "") or ""),
+            "end_date": str(terms.get("expectedEndDate", "") or ""),
+        }
+        fixed = terms.get("fixedPriceTerm") or {}
+        budget = fixed.get("budget") or {}
+        if budget.get("amount") not in (None, ""):
+            return cls(
+                amount=_to_float(budget.get("amount"), None),
+                currency=budget.get("currencyCode", "USD"),
+                is_fixed=True,
+                **dates,
+            )
+
+        hourly = terms.get("hourlyTerms") or {}
+        rate = hourly.get("rate") or {}
+        if rate.get("amount") not in (None, ""):
+            limit = hourly.get("weeklyHoursLimit")
+            return cls(
+                amount=_to_float(rate.get("amount"), None),
+                currency=rate.get("currencyCode", "USD"),
+                weekly_hours_limit=int(limit) if str(limit).isdigit() else None,
+                **dates,
+            )
+        return cls(**dates)
+
+
+@dataclass
+class Offer:
+    """A contract offer extended by a client, owned by Upwork."""
+
+    id: str
+    title: str = ""
+    state: str = ""
+    kind: str = ""
+    client_name: str = ""
+    job_title: str = ""
+    updated_at: str = ""
+    application_id: str = ""
+    application_status: str = ""
+    description: str = ""
+    message_to_contractor: str = ""
+    close_job_on_accept: bool = False
+    terms: OfferTerms = field(default_factory=OfferTerms)
+
+    @classmethod
+    def from_api(cls, data: dict[str, Any]) -> "Offer":
+        data = data or {}
+        # A connection node wraps the offer one level down.
+        inner = data.get("offer") or {}
+        offer_id = str(inner.get("id") or data.get("id", "") or "")
+
+        company = data.get("company") or {}
+        client = data.get("client") or {}
+        proposal = data.get("vendorProposal") or {}
+
+        return cls(
+            id=offer_id,
+            title=str(data.get("title", "") or ""),
+            state=str(data.get("state", "") or ""),
+            kind=str(data.get("type", "") or ""),
+            client_name=str(company.get("name") or client.get("name") or ""),
+            job_title=str((data.get("job") or {}).get("title", "") or ""),
+            updated_at=str(
+                data.get("lastUpdatedDateTime")
+                or data.get("lastPublishedDateTime")
+                or ""
+            ),
+            application_id=str(proposal.get("id", "") or ""),
+            application_status=str(
+                (proposal.get("status") or {}).get("status", "") or ""
+            ),
+            description=str(data.get("description", "") or ""),
+            message_to_contractor=str(data.get("messageToContractor", "") or ""),
+            close_job_on_accept=bool(data.get("closeJobPostingOnAccept", False)),
+            terms=OfferTerms.from_api(data.get("offerTerms")),
+        )
+
+
+@dataclass
+class Application:
+    """A proposal already submitted on Upwork, read back from its API.
+
+    Not to be confused with a locally drafted Proposal, which Upwork's terms
+    forbid submitting through the API.
+    """
+
+    id: str
+    status: str = ""
+    cover_letter: str = ""
+    created_at: str = ""
+    modified_at: str = ""
+    status_changed_at: str = ""
+    job: "JobPosting | None" = None
+
+    @classmethod
+    def from_api(cls, node: dict[str, Any]) -> "Application":
+        node = node or {}
+        audit = node.get("auditDetails") or {}
+        posting = node.get("marketplaceJobPosting")
+        return cls(
+            id=str(node.get("id", "") or ""),
+            status=str((node.get("status") or {}).get("status", "") or ""),
+            cover_letter=str(
+                node.get("proposalCoverLetter") or node.get("coverLetter") or ""
+            ),
+            created_at=str(audit.get("createdDateTime", "") or ""),
+            modified_at=str(audit.get("modifiedDateTime", "") or ""),
+            status_changed_at=str(audit.get("statusChangedDateTime", "") or ""),
+            job=JobPosting.from_graphql(posting) if posting else None,
+        )
+
+    @property
+    def job_title(self) -> str:
+        return self.job.title if self.job else ""
+
+    def sort_key(self, preferred: str = "modified") -> str:
+        """The audit timestamp this listing should be ordered by."""
+        if preferred == "created":
+            return self.created_at
+        if preferred == "status":
+            return self.status_changed_at or self.modified_at
+        return self.modified_at or self.created_at
 
 
 @dataclass
