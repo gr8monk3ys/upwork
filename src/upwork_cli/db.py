@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from typing import Any
 
 from upwork_cli.config import DB_FILE, ensure_config_dir
-from upwork_cli.models import JobPosting, ScoredJob
+from upwork_cli.models import JobPosting
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -227,25 +227,12 @@ def is_seen(job_id: str) -> bool:
         return row is not None
 
 
-def get_jobs_with_scores(limit: int = 50) -> list[ScoredJob]:
-    """Cached jobs with their score, highest first, unscored last."""
-    with get_connection() as conn:
-        rows = conn.execute(
-            """SELECT j.*, s.score, s.reasoning
-            FROM jobs j LEFT JOIN scores s ON j.id = s.job_id
-            ORDER BY s.score DESC NULLS LAST, j.fetched_at DESC
-            LIMIT ?""",
-            (limit,),
-        ).fetchall()
-        return [ScoredJob.from_db_row(r) for r in rows]
-
-
 def get_unscored_jobs(limit: int = 50) -> list[JobPosting]:
     """Cached jobs that have never been successfully scored, newest first.
 
-    Filtered in SQL rather than in the caller: ``get_jobs_with_scores`` orders
-    unscored jobs last, so taking its first N and discarding the scored ones
-    strands every unscored job beyond the window.
+    Filtered in SQL rather than in the caller: ranking unscored jobs last and
+    then discarding the scored ones from the first N strands every unscored
+    job beyond the window.
     """
     with get_connection() as conn:
         rows = conn.execute(

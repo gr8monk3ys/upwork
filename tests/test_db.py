@@ -10,7 +10,6 @@ from upwork_cli.db import (
     get_bookmarks,
     get_connection,
     get_job,
-    get_jobs_with_scores,
     get_latest_proposal,
     get_proposal,
     get_proposals,
@@ -49,10 +48,10 @@ class TestUpsertJob:
         job = _make_job_posting()
         upsert_job(job)
 
-        rows = get_jobs_with_scores(limit=10)
-        assert len(rows) == 1
-        assert rows[0].job.id == job.id
-        assert rows[0].job.title == job.title
+        stored = get_job(job.id)
+        assert stored is not None
+        assert stored.id == job.id
+        assert stored.title == job.title
 
     def test_update_existing_job(self, isolated_config):
         init_db()
@@ -63,9 +62,7 @@ class TestUpsertJob:
         job.title = "Updated Title"
         upsert_job(job)
 
-        rows = get_jobs_with_scores(limit=10)
-        assert len(rows) == 1
-        assert rows[0].job.title == "Updated Title"
+        assert get_job(job.id).title == "Updated Title"
 
     def test_skills_serialized_as_json(self, isolated_config):
         init_db()
@@ -80,16 +77,14 @@ class TestUpsertJob:
         assert json.loads(raw["skills"]) == ["Python", "Django"]
 
         # ... and handed back as a list
-        rows = get_jobs_with_scores(limit=10)
-        assert rows[0].job.skills == ["Python", "Django"]
+        assert get_job(job.id).skills == ["Python", "Django"]
 
     def test_client_verified_roundtrip(self, isolated_config):
         init_db()
         job = _make_job_posting(client_verified=True)
         upsert_job(job)
 
-        rows = get_jobs_with_scores(limit=10)
-        assert rows[0].job.client_verified is True
+        assert get_job(job.id).client_verified is True
 
 
 class TestGetJob:
@@ -149,20 +144,25 @@ class TestScores:
         upsert_job(job)
         save_score(job.id, 8, "Good match")
 
-        rows = get_jobs_with_scores(limit=10)
-        assert rows[0].score == 8
-        assert rows[0].reasoning == "Good match"
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT score, reasoning FROM scores WHERE job_id = ?", (job.id,)
+            ).fetchone()
+        assert row["score"] == 8
+        assert row["reasoning"] == "Good match"
 
-    def test_scores_sorted_descending(self, isolated_config):
+    def test_rescoring_replaces_the_previous_score(self, isolated_config):
         init_db()
-        for i, score in enumerate([3, 9, 6]):
-            job = _make_job_posting(id=f"~0{i}")
-            upsert_job(job)
-            save_score(job.id, score, f"Score {score}")
+        job = _make_job_posting()
+        upsert_job(job)
+        save_score(job.id, 4, "First pass")
+        save_score(job.id, 9, "Second pass")
 
-        rows = get_jobs_with_scores(limit=10)
-        scores = [r.score for r in rows]
-        assert scores == [9, 6, 3]
+        with get_connection() as conn:
+            rows = conn.execute(
+                "SELECT score FROM scores WHERE job_id = ?", (job.id,)
+            ).fetchall()
+        assert [r["score"] for r in rows] == [9]
 
     def test_score_requires_existing_job(self, isolated_config):
         init_db()
