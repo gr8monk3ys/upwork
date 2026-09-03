@@ -2,7 +2,9 @@
 
 import json
 import os
+import re
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -144,6 +146,188 @@ class Profile:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Profile":
         return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+
+    @classmethod
+    def from_markdown(cls, text: str) -> "Profile":
+        """Build a Profile from a Markdown file with ## headings.
+
+        Fields absent from the file keep their defaults, so a file holding
+        only a title yields a Profile with only a title set.
+
+        Supported headings (case-insensitive):
+            ## Professional Title
+            ## Professional Overview
+            ## Skills to Add
+            ## Hourly Rate Suggestion
+            ## Portfolio / ## Portfolio Entries
+            ## Employment History / ## Experience (for experience_years)
+        """
+        sections: dict[str, str] = {}
+        current_heading: str | None = None
+        lines_buffer: list[str] = []
+
+        for line in text.splitlines():
+            heading_match = re.match(r"^##\s+(.+)$", line)
+            if heading_match:
+                # Store the previous section
+                if current_heading is not None:
+                    sections[current_heading] = "\n".join(lines_buffer).strip()
+                current_heading = heading_match.group(1).strip().lower()
+                lines_buffer = []
+            else:
+                lines_buffer.append(line)
+
+        # Store the last section
+        if current_heading is not None:
+            sections[current_heading] = "\n".join(lines_buffer).strip()
+
+        profile_data: dict = {}
+
+        # Title — strip markdown bold and surrounding whitespace/rules
+        for key in ("professional title", "title"):
+            if key in sections:
+                title = sections[key].strip()
+                title = re.sub(r"^---+\s*", "", title).strip()
+                title = re.sub(r"\s*---+$", "", title).strip()
+                title = title.strip("*")  # Remove bold markers
+                profile_data["title"] = title
+                break
+
+        # Overview — strip trailing horizontal rules
+        for key in ("professional overview", "overview"):
+            if key in sections:
+                overview = sections[key].strip()
+                overview = re.sub(r"\s*---+\s*$", "", overview).strip()
+                profile_data["overview"] = overview
+                break
+
+        # Skills — expect bullet list or comma-separated
+        for key in ("skills to add", "skills"):
+            if key in sections:
+                raw = sections[key]
+                skills: list[str] = []
+                for sline in raw.splitlines():
+                    sline = sline.strip()
+                    # Skip sub-headings (### Category Name) and horizontal rules
+                    if re.match(r"^#{1,6}\s+", sline) or sline.startswith("---"):
+                        continue
+                    # Strip leading bullet markers
+                    sline = re.sub(r"^[-*]\s*", "", sline)
+                    sline = sline.strip()
+                    if not sline:
+                        continue
+                    # If line contains commas, split on them
+                    if "," in sline:
+                        skills.extend(s.strip() for s in sline.split(",") if s.strip())
+                    else:
+                        skills.append(sline)
+                profile_data["skills"] = skills
+                break
+
+        # Hourly rate — extract the dollar range
+        for key in ("hourly rate suggestion", "hourly rate"):
+            if key in sections:
+                rate_text = sections[key].strip()
+                # Try to extract $XX-$XX/hr pattern
+                rate_match = re.search(r"\$[\d,]+\s*[-–]\s*\$[\d,]+/hr", rate_text)
+                if rate_match:
+                    profile_data["hourly_rate"] = rate_match.group(0)
+                else:
+                    profile_data["hourly_rate"] = re.sub(
+                        r"\s*---+\s*$", "", rate_text
+                    ).strip()
+                break
+
+        # Portfolio
+        for key in ("portfolio entries", "portfolio"):
+            if key in sections:
+                raw = sections[key]
+                portfolio: list[dict[str, str]] = []
+                current_name: str | None = None
+                current_desc_lines: list[str] = []
+
+                for pline in raw.splitlines():
+                    pline_stripped = pline.strip()
+                    # Sub-heading (### or bold **name**)
+                    sub_match = re.match(r"^###\s+(.+)$", pline_stripped) or re.match(
+                        r"^\*\*(.+?)\*\*$", pline_stripped
+                    )
+                    if sub_match:
+                        if current_name is not None:
+                            portfolio.append(
+                                {
+                                    "name": current_name,
+                                    "description": "\n".join(
+                                        current_desc_lines
+                                    ).strip(),
+                                }
+                            )
+                        current_name = sub_match.group(1).strip()
+                        current_desc_lines = []
+                    elif pline_stripped:
+                        cleaned = re.sub(r"^[-*]\s*", "", pline_stripped)
+                        current_desc_lines.append(cleaned)
+
+                if current_name is not None:
+                    portfolio.append(
+                        {
+                            "name": current_name,
+                            "description": "\n".join(current_desc_lines).strip(),
+                        }
+                    )
+
+                if portfolio:
+                    profile_data["portfolio"] = portfolio
+                break
+
+        # Experience years — extract from overview ("X+ years") or employment history date ranges
+        if "experience_years" not in profile_data:
+            overview_text = profile_data.get("overview", "")
+            years_match = re.search(
+                r"(\d+)\+?\s*years?\b", overview_text, re.IGNORECASE
+            )
+            if years_match:
+                profile_data["experience_years"] = int(years_match.group(1))
+            else:
+                # Fall back to employment history / experience sections
+                for key in ("employment history", "experience"):
+                    if key in sections:
+                        # Look for year ranges like "2017 - Present" or "2019 - 2022"
+                        year_ranges = re.findall(
+                            r"(\d{4})\s*[-–]\s*(Present|\d{4})", sections[key]
+                        )
+                        if year_ranges:
+                            current_year = datetime.now(timezone.utc).year
+                            total = 0
+                            for start, end in year_ranges:
+                                end_year = (
+                                    current_year if end == "Present" else int(end)
+                                )
+                                total = max(total, end_year - int(start))
+                            if total > 0:
+                                profile_data["experience_years"] = total
+                        break
+
+        return cls(**profile_data)
+
+    @property
+    def is_empty(self) -> bool:
+        """True when no field has been filled in at all.
+
+        Distinct from "not usable for scoring", which asks only about title
+        and skills: a Profile carrying just an overview is thin but is still
+        something the user wrote, so importing one is not an error.
+        """
+        return not any(
+            (
+                self.title,
+                self.overview,
+                self.skills,
+                self.portfolio,
+                self.hourly_rate,
+                self.experience_years,
+            )
+        )
 
     def summary(self) -> str:
         parts = []
