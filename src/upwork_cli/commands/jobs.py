@@ -6,10 +6,10 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 
 import click
-from rich.console import Console
 from rich.table import Table
 
 from upwork_cli import jobs as jobs_api
+from upwork_cli import output
 from upwork_cli.client import NotAuthenticated, UpworkClient, get_client
 from upwork_cli.config import load_profile, load_settings, save_settings
 from upwork_cli.db import (
@@ -20,23 +20,8 @@ from upwork_cli.db import (
     save_bookmark,
 )
 from upwork_cli.models import JobPosting, ScoreResult
+from upwork_cli.output import console
 from upwork_cli.scoring import score_jobs
-
-console = Console()
-
-
-def _truncate(text: str, length: int) -> str:
-    """Truncate text to a given length, appending ellipsis if needed."""
-    if len(text) <= length:
-        return text
-    return text[: length - 3] + "..."
-
-
-def _format_budget(amount, currency="USD") -> str:
-    """Format a budget amount for display."""
-    if amount is None:
-        return "N/A"
-    return f"${amount:,.0f} {currency}"
 
 
 def _format_skills(skills, max_count: int = 3) -> str:
@@ -173,8 +158,8 @@ def _display_jobs_table(jobs: list[JobPosting], title: str = "Search Results") -
 
     for job in jobs:
         table.add_row(
-            _truncate(job.title, 50),
-            _format_budget(job.budget_amount, job.budget_currency),
+            output.truncate(job.title, 50),
+            output.money(job.budget_amount, job.budget_currency),
             _format_skills(job.skills, 3),
             job.client_country or "N/A",
             job.created_at or "N/A",
@@ -339,15 +324,14 @@ def search(ctx, query, budget_min, budget_max, job_type, posted, limit):
     try:
         client = get_client()
     except NotAuthenticated:
-        console.print("[red]Not authenticated. Run 'upwork config setup' first.[/red]")
-        return
+        output.fail("Not authenticated. Run 'upwork config setup' first.")
 
     results = _search_via_api(client, query, limit)
 
     results = _filter_jobs(results, budget_min, budget_max, job_type, posted)
 
     if not results:
-        console.print("[yellow]No jobs found matching your query.[/yellow]")
+        output.empty("No jobs found matching your query.")
         return
 
     jobs_api.cache(results)
@@ -367,7 +351,7 @@ def list_saved_searches():
     settings = load_settings()
     search_terms = _get_saved_search_terms(settings)
     if not search_terms:
-        console.print("[yellow]No saved search terms yet.[/yellow]")
+        output.empty("No saved search terms yet.")
         console.print(
             "[dim]Use 'upwork jobs searches add \"python developer\"' to add one.[/dim]"
         )
@@ -392,7 +376,7 @@ def add_saved_search(query: str):
         console.print("[red]Search term cannot be empty.[/red]")
         raise SystemExit(1)
     if term in search_terms:
-        console.print(f"[yellow]Saved search already exists:[/yellow] {term}")
+        output.warn(f"Saved search already exists: {term}")
         return
     search_terms.append(term)
     _save_search_terms(settings, search_terms)
@@ -423,7 +407,7 @@ def _prepare_saved_search_run(
     profile = load_profile()
     search_terms = _get_saved_search_terms(settings)
     if not search_terms:
-        console.print("[yellow]No saved search terms configured.[/yellow]")
+        console.print("[yellow]No saved search terms configured.")
         console.print(
             "[dim]Use 'upwork jobs searches add \"python developer\"' to add one.[/dim]"
         )
@@ -437,16 +421,15 @@ def _prepare_saved_search_run(
 
     has_scoring = bool(settings.anthropic_api_key and (profile.title or profile.skills))
     if not has_scoring:
-        console.print(
-            "[yellow]Scoring disabled: missing API key or profile. New jobs will not be scored.[/yellow]"
+        output.warn(
+            "Scoring disabled: missing API key or profile. New jobs will not be scored."
         )
 
     profile_summary = profile.summary() if has_scoring else ""
     try:
         client = get_client()
     except NotAuthenticated:
-        console.print("[red]Not authenticated. Run 'upwork config setup' first.[/red]")
-        raise SystemExit(1) from None
+        output.fail("Not authenticated. Run 'upwork config setup' first.")
 
     return (
         settings,
@@ -508,7 +491,7 @@ def run_saved_searches(limit: int, min_score: int | None, notify: str):
         total_alerts += alert_count
 
     if total_new == 0:
-        console.print("[yellow]No new jobs found across saved searches.[/yellow]")
+        output.empty("No new jobs found across saved searches.")
         return
 
     console.print(
@@ -609,17 +592,15 @@ def score(ctx):
         return
 
     if not profile.title and not profile.skills:
-        console.print(
-            "[yellow]Profile is empty. Run 'upwork config profile' to set up your profile first.[/yellow]"
+        output.warn(
+            "Profile is empty. Run 'upwork config profile' to set up your profile first."
         )
         return
 
     unscored = get_unscored_jobs(limit=50)
 
     if not unscored:
-        console.print(
-            "[yellow]No unscored jobs found. Run 'jobs search' first.[/yellow]"
-        )
+        output.empty("No unscored jobs found. Run 'jobs search' first.")
         return
 
     console.print(
@@ -650,8 +631,8 @@ def score(ctx):
 
         table.add_row(
             score_cell,
-            _truncate(result.job.title, 50),
-            _format_budget(result.job.budget_amount, result.job.budget_currency),
+            output.truncate(result.job.title, 50),
+            output.money(result.job.budget_amount, result.job.budget_currency),
             reasoning,
         )
 
@@ -688,16 +669,15 @@ def watch(ctx, query, interval, min_score, notify):
 
     has_scoring = bool(settings.anthropic_api_key and (profile.title or profile.skills))
     if not has_scoring:
-        console.print(
-            "[yellow]Scoring disabled: missing API key or profile. New jobs will not be scored.[/yellow]"
+        output.warn(
+            "Scoring disabled: missing API key or profile. New jobs will not be scored."
         )
 
     profile_summary = profile.summary() if has_scoring else ""
     try:
         client = get_client()
     except NotAuthenticated:
-        console.print("[red]Not authenticated. Run 'upwork config setup' first.[/red]")
-        return
+        output.fail("Not authenticated. Run 'upwork config setup' first.")
 
     console.print(f"[bold]Watching for:[/bold] {query}")
     console.print(
@@ -738,7 +718,7 @@ def detail(ctx, job_id):
     except NotAuthenticated:
         job = None
     except jobs_api.JobsError as exc:
-        console.print(f"[yellow]{exc}, checking local cache.[/yellow]")
+        output.warn(f"{exc}, checking local cache.")
         job = None
 
     # Fall back to the local DB cache
@@ -753,7 +733,7 @@ def detail(ctx, job_id):
     console.rule(f"[bold]{job.title}[/bold]")
     console.print(f"[bold]ID:[/bold] {job.id}")
     console.print(
-        f"[bold]Budget:[/bold] {_format_budget(job.budget_amount, job.budget_currency)}"
+        f"[bold]Budget:[/bold] {output.money(job.budget_amount, job.budget_currency)}"
     )
     console.print(
         f"[bold]Skills:[/bold] {', '.join(job.skills) if job.skills else 'N/A'}"
@@ -767,7 +747,7 @@ def detail(ctx, job_id):
     console.print("[bold]Client Info:[/bold]")
     console.print(f"  Country: {job.client_country or 'N/A'}")
     console.print(
-        f"  Total Spent: {_format_budget(job.client_total_spent) if job.client_total_spent else 'N/A'}"
+        f"  Total Spent: {output.money(job.client_total_spent) if job.client_total_spent else 'N/A'}"
     )
     console.print(
         f"  Total Hires: {job.client_total_hires if job.client_total_hires is not None else 'N/A'}"
@@ -803,9 +783,7 @@ def saved(ctx):
     bookmarks = get_bookmarks()
 
     if not bookmarks:
-        console.print(
-            "[yellow]No bookmarks yet. Use 'jobs save <job-id>' to bookmark a job.[/yellow]"
-        )
+        output.empty("No bookmarks yet. Use 'jobs save <job-id>' to bookmark a job.")
         return
 
     table = Table(title="Bookmarked Jobs", show_lines=True)
@@ -818,8 +796,8 @@ def saved(ctx):
     for bm in bookmarks:
         table.add_row(
             bm.get("job_id", ""),
-            _truncate(bm.get("title", "") or "N/A", 50),
-            _format_budget(bm.get("budget_amount"), bm.get("budget_currency", "USD")),
+            output.truncate(bm.get("title", "") or "N/A", 50),
+            output.money(bm.get("budget_amount"), bm.get("budget_currency", "USD")),
             bm.get("note", "") or "",
             bm.get("bookmarked_at", "") or "",
         )

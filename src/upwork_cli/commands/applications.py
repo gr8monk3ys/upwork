@@ -1,15 +1,14 @@
 """Commands for managing proposal applications and incoming offers."""
 
 import click
-from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
 from upwork_cli import applications as applications_api
+from upwork_cli import output
 from upwork_cli.client import NotAuthenticated, UpworkClient, get_client
 from upwork_cli.models import Offer, OfferTerms
-
-console = Console()
+from upwork_cli.output import console
 
 AUTH_ERROR_MESSAGE = (
     "Not authenticated. Run [bold]upwork config setup[/bold] to configure "
@@ -58,20 +57,7 @@ def _get_client() -> UpworkClient:
     try:
         return get_client()
     except NotAuthenticated:
-        console.print(f"\n[red]{AUTH_ERROR_MESSAGE}[/red]\n")
-        raise SystemExit(1) from None
-
-
-def _fail(exc: Exception) -> None:
-    console.print(f"[red]{exc}[/red]")
-    raise SystemExit(1)
-
-
-def _format_amount(amount: float | None, currency: str = "USD") -> str:
-    """Format a money amount for display."""
-    if amount is None:
-        return "N/A"
-    return f"${amount:,.2f} {currency}"
+        output.fail(AUTH_ERROR_MESSAGE)
 
 
 def _format_terms(terms: OfferTerms) -> str:
@@ -155,10 +141,10 @@ def list_applications(status: str, sort_name: str, limit: int) -> None:
             client, statuses=statuses, limit=limit, sort_field=sort_field
         )
     except applications_api.ApplicationsError as exc:
-        _fail(exc)
+        output.fail(exc)
 
     if not found:
-        console.print("[yellow]No applications found for the selected filter.[/yellow]")
+        output.empty("No applications found for the selected filter.")
         return
 
     table = Table(title="Applications", show_lines=True)
@@ -192,10 +178,10 @@ def show_application(application_id: str) -> None:
             client, application_id, limit=10
         )
     except applications_api.ApplicationsError as exc:
-        _fail(exc)
+        output.fail(exc)
 
     if application is None:
-        console.print(f"[yellow]Application {application_id} was not found.[/yellow]")
+        output.warn(f"Application {application_id} was not found.")
         raise SystemExit(1)
 
     job = application.job
@@ -203,14 +189,14 @@ def show_application(application_id: str) -> None:
         f"[bold]Application ID:[/bold] {application.id}",
         f"[bold]Status:[/bold] {application.status or 'Unknown'}",
         f"[bold]Job:[/bold] {application.job_title or 'Untitled'}",
-        f"[bold]Budget:[/bold] {_format_amount(job.budget_amount if job else None, job.budget_currency if job else 'USD')}",
+        f"[bold]Budget:[/bold] {output.money(job.budget_amount if job else None, job.budget_currency if job else 'USD')}",
         f"[bold]Engagement:[/bold] {(job.engagement if job else '') or 'N/A'}",
         f"[bold]Duration:[/bold] {(job.duration_label if job else '') or 'N/A'}",
         f"[bold]Submitted:[/bold] {application.created_at}",
         f"[bold]Updated:[/bold] {application.modified_at}",
         f"[bold]Client Country:[/bold] {(job.client_country if job else '') or 'N/A'}",
         f"[bold]Client Verified:[/bold] {'VERIFIED' if job and job.client_verified else 'UNKNOWN'}",
-        f"[bold]Client Spend:[/bold] {_format_amount(job.client_total_spent if job else None)}",
+        f"[bold]Client Spend:[/bold] {output.money(job.client_total_spent if job else None)}",
         f"[bold]Client Hires:[/bold] {(job.client_total_hires if job else None) if job and job.client_total_hires is not None else 'N/A'}",
     ]
 
@@ -264,10 +250,10 @@ def list_offers(state: str | None, limit: int) -> None:
     try:
         found = applications_api.list_offers(client, state=gql_state, limit=limit)
     except applications_api.ApplicationsError as exc:
-        _fail(exc)
+        output.fail(exc)
 
     if not found:
-        console.print("[yellow]No offers found for the selected filter.[/yellow]")
+        output.empty("No offers found for the selected filter.")
         return
 
     table = Table(title="Offers", show_lines=True)
@@ -300,10 +286,10 @@ def show_offer(offer_id: str) -> None:
     try:
         offer = applications_api.get_offer(client, offer_id)
     except applications_api.ApplicationsError as exc:
-        _fail(exc)
+        output.fail(exc)
 
     if offer is None:
-        console.print(f"[yellow]Offer {offer_id} was not found.[/yellow]")
+        output.warn(f"Offer {offer_id} was not found.")
         raise SystemExit(1)
 
     lines = [
@@ -370,12 +356,12 @@ def withdraw_offer(offer_id: str, reason: str, message: str, yes: bool) -> None:
     console.print()
 
     if not yes and not click.confirm("Withdraw this offer?"):
-        console.print("[yellow]Offer not withdrawn.[/yellow]")
+        output.warn("Offer not withdrawn.")
         return
 
     try:
         applications_api.withdraw_offer(client, offer_id, gql_reason, message)
     except applications_api.ApplicationsError as exc:
-        _fail(exc)
+        output.fail(exc)
 
     console.print("[green]Offer withdrawn successfully.[/green]")

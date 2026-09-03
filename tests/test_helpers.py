@@ -4,45 +4,13 @@ from datetime import datetime, timedelta, timezone
 
 from upwork_cli.commands.jobs import (
     _filter_jobs,
-    _format_budget,
     _format_skills,
     _get_saved_search_terms,
     _normalize_search_term,
     _score_color,
-    _truncate,
 )
 from upwork_cli.config import Settings
 from upwork_cli.models import JobPosting
-
-
-class TestTruncate:
-    def test_short_string_unchanged(self):
-        assert _truncate("hello", 10) == "hello"
-
-    def test_exact_length_unchanged(self):
-        assert _truncate("hello", 5) == "hello"
-
-    def test_long_string_truncated(self):
-        result = _truncate("hello world", 8)
-        assert result == "hello..."
-        assert len(result) == 8
-
-    def test_empty_string(self):
-        assert _truncate("", 5) == ""
-
-
-class TestFormatBudget:
-    def test_none_budget(self):
-        assert _format_budget(None) == "N/A"
-
-    def test_integer_budget(self):
-        assert _format_budget(5000) == "$5,000 USD"
-
-    def test_float_budget(self):
-        assert _format_budget(2500.99) == "$2,501 USD"
-
-    def test_custom_currency(self):
-        assert _format_budget(1000, "EUR") == "$1,000 EUR"
 
 
 class TestFormatSkills:

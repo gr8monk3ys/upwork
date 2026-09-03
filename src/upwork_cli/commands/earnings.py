@@ -4,20 +4,14 @@ import csv
 from io import StringIO
 
 import click
-from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
 from upwork_cli import earnings as earnings_api
+from upwork_cli import output
 from upwork_cli.client import NotAuthenticated, UpworkClient, get_client
 from upwork_cli.models import Contract, EarningRow
-
-console = Console()
-
-
-def _fail(exc: Exception) -> None:
-    console.print(f"[red]{exc}[/red]")
-    raise SystemExit(1)
+from upwork_cli.output import console
 
 
 def _get_client() -> UpworkClient:
@@ -25,8 +19,7 @@ def _get_client() -> UpworkClient:
     try:
         return get_client()
     except NotAuthenticated:
-        console.print("[red]Not authenticated. Run 'upwork config setup' first.[/red]")
-        raise SystemExit(1) from None
+        output.fail("Not authenticated. Run 'upwork config setup' first.")
 
 
 def _safe_float(value, default: float = 0.0) -> float:
@@ -37,11 +30,6 @@ def _safe_float(value, default: float = 0.0) -> float:
         return float(value)
     except (ValueError, TypeError):
         return default
-
-
-def _format_currency(amount: float) -> str:
-    """Format a number as USD currency."""
-    return f"${amount:,.2f}"
 
 
 # ---------------------------------------------------------------------------
@@ -64,7 +52,7 @@ def summary() -> None:
     try:
         rows, _ = earnings_api.fetch(client)
     except earnings_api.EarningsError as exc:
-        _fail(exc)
+        output.fail(exc)
 
     if not rows:
         console.print(
@@ -81,11 +69,11 @@ def summary() -> None:
     console.print(
         Panel(
             f"[bold green]Total Earned:[/bold green]   "
-            f"{_format_currency(totals.total)}\n"
+            f"{output.money(totals.total)}\n"
             f"[bold cyan]This Month:[/bold cyan]     "
-            f"{_format_currency(totals.this_month)}\n"
+            f"{output.money(totals.this_month)}\n"
             f"[bold blue]This Week:[/bold blue]      "
-            f"{_format_currency(totals.this_week)}",
+            f"{output.money(totals.this_week)}",
             title="Earnings Summary",
             border_style="green",
         )
@@ -110,10 +98,10 @@ def report(from_date: str | None, to_date: str | None, output_format: str) -> No
     try:
         rows, payload = earnings_api.fetch(client, from_date, to_date)
     except earnings_api.EarningsError as exc:
-        _fail(exc)
+        output.fail(exc)
 
     if not rows:
-        console.print("[yellow]No earnings found for the specified period.[/yellow]")
+        output.empty("No earnings found for the specified period.")
         return
 
     col_names = earnings_api.column_names(payload)
@@ -150,10 +138,10 @@ def export(output_file: str) -> None:
     try:
         rows, _ = earnings_api.fetch(client)
     except earnings_api.EarningsError as exc:
-        _fail(exc)
+        output.fail(exc)
 
     if not rows:
-        console.print("[yellow]No earnings data to export.[/yellow]")
+        output.empty("No earnings data to export.")
         return
 
     try:
@@ -203,7 +191,7 @@ def contracts_list() -> None:
         engagements = [engagements]
 
     if not engagements:
-        console.print("[yellow]No active contracts found.[/yellow]")
+        output.empty("No active contracts found.")
         return
 
     rich_table = Table(title="Contracts", show_lines=True)
@@ -229,7 +217,7 @@ def contracts_list() -> None:
             status_display = status_str
 
         rate = (
-            _format_currency(contract.hourly_rate)
+            output.money(contract.hourly_rate)
             if contract.hourly_rate is not None
             else "-"
         )
@@ -237,7 +225,7 @@ def contracts_list() -> None:
             f"{contract.total_hours:.1f}" if contract.total_hours is not None else "-"
         )
         total = (
-            _format_currency(contract.total_charge)
+            output.money(contract.total_charge)
             if contract.total_charge is not None
             else "-"
         )
@@ -287,14 +275,12 @@ def contracts_detail(reference: str) -> None:
         f"[bold]Created:[/bold]     {contract.created_at}",
     ]
     if contract.hourly_rate is not None:
-        lines.append(
-            f"[bold]Hourly Rate:[/bold] {_format_currency(contract.hourly_rate)}"
-        )
+        lines.append(f"[bold]Hourly Rate:[/bold] {output.money(contract.hourly_rate)}")
     if contract.total_hours is not None:
         lines.append(f"[bold]Total Hours:[/bold] {contract.total_hours:.1f}")
     if contract.total_charge is not None:
         lines.append(
-            f"[bold]Total Earned:[/bold] {_format_currency(contract.total_charge)}"
+            f"[bold]Total Earned:[/bold] {output.money(contract.total_charge)}"
         )
 
     # Milestones (if available in the response).
@@ -311,7 +297,7 @@ def contracts_detail(reference: str) -> None:
             ms_desc = ms.get("description", ms.get("title", "Untitled"))
             ms_amount = _safe_float(ms.get("amount", 0))
             ms_status = ms.get("status", ms.get("state", ""))
-            lines.append(f"  - {ms_desc}: {_format_currency(ms_amount)} [{ms_status}]")
+            lines.append(f"  - {ms_desc}: {output.money(ms_amount)} [{ms_status}]")
 
     console.print(
         Panel(
@@ -350,7 +336,7 @@ def contracts_submit(reference: str, message: str) -> None:
     )
 
     if not click.confirm("Are you sure you want to submit work for this contract?"):
-        console.print("[yellow]Submission cancelled.[/yellow]")
+        output.warn("Submission cancelled.")
         return
 
     params: dict = {"engagement__reference": reference}

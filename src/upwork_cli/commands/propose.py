@@ -8,11 +8,11 @@ import tempfile
 from pathlib import Path
 
 import click
-from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
 
+from upwork_cli import output
 from upwork_cli.ai.drafter import draft_proposal, refine_proposal
 from upwork_cli.client import UpworkClient
 from upwork_cli.config import CONFIG_DIR, load_profile, load_settings
@@ -29,8 +29,7 @@ from upwork_cli.db import (
     upsert_job,
 )
 from upwork_cli.models import JobPosting
-
-console = Console()
+from upwork_cli.output import console
 
 
 def _open_in_editor(text: str) -> str:
@@ -187,8 +186,8 @@ def generate(
         raise SystemExit(1)
 
     if not profile.title:
-        console.print(
-            "[yellow]Warning:[/yellow] Profile is empty. "
+        output.warn(
+            "Warning: Profile is empty. "
             "Run [bold]upwork profile[/bold] to set up your profile for better proposals."
         )
 
@@ -264,7 +263,7 @@ def generate(
                 )
             except RuntimeError as exc:
                 console.print(
-                    f"[yellow]Client research failed ({exc}) — drafting without it.[/yellow]"
+                    f"[yellow]Client research failed ({exc}) — drafting without it."
                 )
 
         if client_research.get("brief"):

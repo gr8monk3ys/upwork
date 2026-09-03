@@ -73,24 +73,6 @@ class TestSafeFloat:
         assert _safe_float(None, default=-1.0) == -1.0
 
 
-class TestFormatCurrency:
-    def test_basic_amount(self):
-        from upwork_cli.commands.earnings import _format_currency
-
-        assert _format_currency(1234.56) == "$1,234.56"
-
-    def test_zero(self):
-        from upwork_cli.commands.earnings import _format_currency
-
-        assert _format_currency(0) == "$0.00"
-
-    def test_large_amount(self):
-        from upwork_cli.commands.earnings import _format_currency
-
-        result = _format_currency(1000000.0)
-        assert "$1,000,000.00" == result
-
-
 class TestSummaryCommand:
     def test_not_authenticated(self, runner, isolated_config):
         with patch(

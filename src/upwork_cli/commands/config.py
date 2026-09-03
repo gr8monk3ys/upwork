@@ -6,10 +6,10 @@ from pathlib import Path
 
 import click
 import yaml
-from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from upwork_cli import output
 from upwork_cli.client import UpworkClient
 from upwork_cli.config import (
     AUTH_FILE,
@@ -28,8 +28,7 @@ from upwork_cli.config import (
     save_settings,
 )
 from upwork_cli.db import init_db
-
-console = Console()
+from upwork_cli.output import console
 
 SECRET_LABELS = {
     "client_secret": "Client Secret",
@@ -318,20 +317,20 @@ def clear_secret(name: str, yes: bool) -> None:
     env_name = SECRET_ENV_MAP.get(secret_key, "")
 
     if not yes and not click.confirm(f"Clear {label} from the system keychain?"):
-        console.print("[yellow]Aborted.[/yellow]")
+        output.warn("Aborted.")
         return
 
     _set_secret(secret_key, "")
 
     if source.startswith("env:"):
-        console.print(
-            f"[yellow]{label} is still provided by {env_name}. "
-            "Unset the environment variable if you want it fully removed.[/yellow]"
+        output.warn(
+            f"{label} is still provided by {env_name}. "
+            "Unset the environment variable if you want it fully removed."
         )
     elif source == "keyring":
         console.print(f"[green]Cleared {label} from the system keychain.[/green]")
     else:
-        console.print(f"[yellow]{label} was not set in the system keychain.[/yellow]")
+        output.warn(f"{label} was not set in the system keychain.")
 
 
 # ---------------------------------------------------------------------------
@@ -423,7 +422,7 @@ def reset():
     if deleted:
         console.print(f"[green]Deleted: {', '.join(deleted)}[/green]")
     else:
-        console.print("[yellow]No configuration files found to delete.[/yellow]")
+        output.empty("No configuration files found to delete.")
 
     console.print(
         "[green]Configuration reset complete (keychain secrets cleared).[/green]"

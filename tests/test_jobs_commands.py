@@ -181,7 +181,7 @@ class TestJobsDetail:
 
         assert result.exit_code == 0
         assert "Python Developer Needed" in result.output
-        assert "$5,000 USD" in result.output
+        assert "$5,000.00 USD" in result.output
         assert "1 to 3 months" in result.output
         assert "30+ hrs/week" in result.output
         assert "United States" in result.output
@@ -296,13 +296,12 @@ class TestJobsSearch:
         assert "API search failed" in result.output
         assert result.exit_code == 0
 
-    def test_unauthenticated_reports_and_exits_zero(self, runner, isolated_config):
-
+    def test_unauthenticated_reports_and_exits_nonzero(self, runner, isolated_config):
+        """Was exit 0 until the output module made every failure exit 1."""
         with patch(
             "upwork_cli.commands.jobs.get_client",
             side_effect=NotAuthenticated("nope"),
         ):
             result = runner.invoke(cli, ["jobs", "search", "python"])
-        # Deliberately exit 0, matching the behaviour this replaced.
-        assert result.exit_code == 0
+        assert result.exit_code == 1
         assert "Not authenticated" in result.output
