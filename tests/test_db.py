@@ -14,6 +14,7 @@ from upwork_cli.db import (
     get_latest_proposal,
     get_proposal,
     get_proposals,
+    get_unscored_jobs,
     init_db,
     is_seen,
     mark_seen,
@@ -102,6 +103,43 @@ class TestGetJob:
     def test_returns_none_when_absent(self, isolated_config):
         init_db()
         assert get_job("nope") is None
+
+
+class TestGetUnscoredJobs:
+    def test_returns_only_unscored(self, isolated_config):
+        init_db()
+        scored, unscored = _make_job_posting(id="s1"), _make_job_posting(id="u1")
+        upsert_job(scored)
+        upsert_job(unscored)
+        save_score("s1", 7, "fine")
+
+        assert [j.id for j in get_unscored_jobs()] == ["u1"]
+
+    def test_reaches_unscored_jobs_beyond_the_limit_window(self, isolated_config):
+        """Regression: unscored jobs sort last, so filtering after a LIMIT
+        stranded every unscored job once the cache held more than `limit`."""
+        init_db()
+        for i in range(45):
+            upsert_job(_make_job_posting(id=f"s{i}"))
+            save_score(f"s{i}", 5, "x")
+        for i in range(15):
+            upsert_job(_make_job_posting(id=f"u{i}"))
+
+        # 45 scored + 15 unscored = 60 rows; a window of 50 must still see all 15.
+        assert len(get_unscored_jobs(limit=50)) == 15
+
+    def test_respects_its_limit(self, isolated_config):
+        init_db()
+        for i in range(5):
+            upsert_job(_make_job_posting(id=f"u{i}"))
+        assert len(get_unscored_jobs(limit=3)) == 3
+
+    def test_empty_when_everything_is_scored(self, isolated_config):
+        init_db()
+        job = _make_job_posting()
+        upsert_job(job)
+        save_score(job.id, 9, "great")
+        assert get_unscored_jobs() == []
 
 
 class TestScores:

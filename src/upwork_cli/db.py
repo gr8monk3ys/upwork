@@ -240,6 +240,25 @@ def get_jobs_with_scores(limit: int = 50) -> list[ScoredJob]:
         return [ScoredJob.from_db_row(r) for r in rows]
 
 
+def get_unscored_jobs(limit: int = 50) -> list[JobPosting]:
+    """Cached jobs that have never been successfully scored, newest first.
+
+    Filtered in SQL rather than in the caller: ``get_jobs_with_scores`` orders
+    unscored jobs last, so taking its first N and discarding the scored ones
+    strands every unscored job beyond the window.
+    """
+    with get_connection() as conn:
+        rows = conn.execute(
+            """SELECT j.*
+            FROM jobs j LEFT JOIN scores s ON j.id = s.job_id
+            WHERE s.score IS NULL
+            ORDER BY j.fetched_at DESC
+            LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [JobPosting.from_db_row(r) for r in rows]
+
+
 def get_job(job_id: str) -> JobPosting | None:
     """Look up a single cached job posting, or None if it is not cached."""
     with get_connection() as conn:

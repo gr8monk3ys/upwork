@@ -15,7 +15,7 @@ from upwork_cli.config import load_profile, load_settings, save_settings
 from upwork_cli.db import (
     get_bookmarks,
     get_job,
-    get_jobs_with_scores,
+    get_unscored_jobs,
     init_db,
     is_seen,
     mark_seen,
@@ -651,7 +651,7 @@ def score(ctx):
         )
         return
 
-    unscored = [sj.job for sj in get_jobs_with_scores(limit=50) if sj.score is None]
+    unscored = get_unscored_jobs(limit=50)
 
     if not unscored:
         console.print(
