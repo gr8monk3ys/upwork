@@ -6,6 +6,7 @@ import pytest
 from click.testing import CliRunner
 
 from upwork_cli.cli import cli
+from upwork_cli.client import NotAuthenticated
 from upwork_cli.db import init_db
 
 
@@ -78,7 +79,7 @@ class TestFormatCurrency:
 
 
 class TestGetFreelancerRef:
-    @patch("upwork_cli.commands.earnings.UpworkClient")
+    @patch("upwork_cli.commands.earnings.get_client")
     def test_happy_path(self, MockClient, runner, isolated_config):
         from upwork_cli.commands.earnings import _get_freelancer_ref
 
@@ -86,7 +87,7 @@ class TestGetFreelancerRef:
         ref = _get_freelancer_ref(client)
         assert ref == "~freelancer123"
 
-    @patch("upwork_cli.commands.earnings.UpworkClient")
+    @patch("upwork_cli.commands.earnings.get_client")
     def test_fallback_ref(self, MockClient, runner, isolated_config):
         from upwork_cli.commands.earnings import _get_freelancer_ref
 
@@ -95,7 +96,7 @@ class TestGetFreelancerRef:
         ref = _get_freelancer_ref(client)
         assert ref == "alt-ref-456"
 
-    @patch("upwork_cli.commands.earnings.UpworkClient")
+    @patch("upwork_cli.commands.earnings.get_client")
     def test_error_raises_system_exit(self, MockClient, runner, isolated_config):
         from upwork_cli.commands.earnings import _get_freelancer_ref
 
@@ -111,15 +112,15 @@ class TestGetFreelancerRef:
 
 
 class TestSummaryCommand:
-    @patch("upwork_cli.commands.earnings.UpworkClient")
+    @patch("upwork_cli.commands.earnings.get_client")
     def test_not_authenticated(self, MockClient, runner, isolated_config):
         init_db()
-        MockClient.return_value = _make_mock_client(authenticated=False)
+        MockClient.side_effect = NotAuthenticated("not authenticated")
         result = runner.invoke(cli, ["earnings", "summary"])
         assert result.exit_code != 0
         assert "Not authenticated" in result.output
 
-    @patch("upwork_cli.commands.earnings.UpworkClient")
+    @patch("upwork_cli.commands.earnings.get_client")
     def test_happy_path_with_data(self, MockClient, runner, isolated_config):
         init_db()
         client = _make_mock_client()
@@ -137,7 +138,7 @@ class TestSummaryCommand:
         assert "Earnings Summary" in result.output
         assert "Total Earned" in result.output
 
-    @patch("upwork_cli.commands.earnings.UpworkClient")
+    @patch("upwork_cli.commands.earnings.get_client")
     def test_empty_data(self, MockClient, runner, isolated_config):
         init_db()
         client = _make_mock_client()
@@ -147,7 +148,7 @@ class TestSummaryCommand:
         assert result.exit_code == 0
         assert "No earnings data" in result.output
 
-    @patch("upwork_cli.commands.earnings.UpworkClient")
+    @patch("upwork_cli.commands.earnings.get_client")
     def test_api_failure(self, MockClient, runner, isolated_config):
         init_db()
         client = _make_mock_client()
@@ -164,7 +165,7 @@ class TestSummaryCommand:
 
 
 class TestReportCommand:
-    @patch("upwork_cli.commands.earnings.UpworkClient")
+    @patch("upwork_cli.commands.earnings.get_client")
     def test_table_format(self, MockClient, runner, isolated_config):
         init_db()
         client = _make_mock_client()
@@ -195,7 +196,7 @@ class TestReportCommand:
         assert result.exit_code == 0
         assert "Earnings Report" in result.output
 
-    @patch("upwork_cli.commands.earnings.UpworkClient")
+    @patch("upwork_cli.commands.earnings.get_client")
     def test_csv_format(self, MockClient, runner, isolated_config):
         init_db()
         client = _make_mock_client()
@@ -216,7 +217,7 @@ class TestReportCommand:
         assert "Date" in result.output
         assert "500" in result.output
 
-    @patch("upwork_cli.commands.earnings.UpworkClient")
+    @patch("upwork_cli.commands.earnings.get_client")
     def test_date_filtering(self, MockClient, runner, isolated_config):
         init_db()
         client = _make_mock_client()
@@ -228,7 +229,7 @@ class TestReportCommand:
         assert result.exit_code == 0
         assert "No earnings found" in result.output
 
-    @patch("upwork_cli.commands.earnings.UpworkClient")
+    @patch("upwork_cli.commands.earnings.get_client")
     def test_empty_report(self, MockClient, runner, isolated_config):
         init_db()
         client = _make_mock_client()
@@ -245,7 +246,7 @@ class TestReportCommand:
 
 
 class TestContractsCommands:
-    @patch("upwork_cli.commands.earnings.UpworkClient")
+    @patch("upwork_cli.commands.earnings.get_client")
     def test_list_happy_path(self, MockClient, runner, isolated_config):
         init_db()
         client = _make_mock_client()
@@ -270,7 +271,7 @@ class TestContractsCommands:
         assert result.exit_code == 0
         assert "Contracts" in result.output
 
-    @patch("upwork_cli.commands.earnings.UpworkClient")
+    @patch("upwork_cli.commands.earnings.get_client")
     def test_list_empty(self, MockClient, runner, isolated_config):
         init_db()
         client = _make_mock_client()
@@ -280,7 +281,7 @@ class TestContractsCommands:
         assert result.exit_code == 0
         assert "No active contracts" in result.output
 
-    @patch("upwork_cli.commands.earnings.UpworkClient")
+    @patch("upwork_cli.commands.earnings.get_client")
     def test_detail_displays_info(self, MockClient, runner, isolated_config):
         init_db()
         client = _make_mock_client()
@@ -301,7 +302,7 @@ class TestContractsCommands:
         assert result.exit_code == 0
         assert "Contract" in result.output
 
-    @patch("upwork_cli.commands.earnings.UpworkClient")
+    @patch("upwork_cli.commands.earnings.get_client")
     def test_detail_with_status_colors(self, MockClient, runner, isolated_config):
         init_db()
         client = _make_mock_client()
@@ -318,7 +319,7 @@ class TestContractsCommands:
         result = runner.invoke(cli, ["contracts", "detail", "~eng003"])
         assert result.exit_code == 0
 
-    @patch("upwork_cli.commands.earnings.UpworkClient")
+    @patch("upwork_cli.commands.earnings.get_client")
     def test_submit_confirm(self, MockClient, runner, isolated_config):
         init_db()
         client = _make_mock_client()
@@ -337,7 +338,7 @@ class TestContractsCommands:
         assert result.exit_code == 0
         assert "submitted successfully" in result.output
 
-    @patch("upwork_cli.commands.earnings.UpworkClient")
+    @patch("upwork_cli.commands.earnings.get_client")
     def test_submit_cancel(self, MockClient, runner, isolated_config):
         init_db()
         client = _make_mock_client()
@@ -355,10 +356,10 @@ class TestContractsCommands:
         assert result.exit_code == 0
         assert "cancelled" in result.output
 
-    @patch("upwork_cli.commands.earnings.UpworkClient")
+    @patch("upwork_cli.commands.earnings.get_client")
     def test_not_authenticated(self, MockClient, runner, isolated_config):
         init_db()
-        MockClient.return_value = _make_mock_client(authenticated=False)
+        MockClient.side_effect = NotAuthenticated("not authenticated")
         result = runner.invoke(cli, ["contracts", "list"])
         assert result.exit_code != 0
         assert "Not authenticated" in result.output

@@ -6,8 +6,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from upwork_cli.client import UpworkClient
-from upwork_cli.config import load_settings
+from upwork_cli.client import NotAuthenticated, UpworkClient, get_client
 from upwork_cli.models import Message
 
 console = Console()
@@ -19,13 +18,12 @@ AUTH_ERROR_MESSAGE = (
 
 
 def _get_client() -> UpworkClient:
-    """Create and validate an authenticated UpworkClient."""
-    settings = load_settings()
-    client = UpworkClient(settings=settings)
-    if not client.is_authenticated:
+    """Return an authenticated client, reporting the failure to the terminal."""
+    try:
+        return get_client()
+    except NotAuthenticated:
         console.print(f"\n[red]{AUTH_ERROR_MESSAGE}[/red]\n")
-        raise SystemExit(1)
-    return client
+        raise SystemExit(1) from None
 
 
 def _get_company(client: UpworkClient) -> str:

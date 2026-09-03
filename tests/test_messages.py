@@ -6,6 +6,7 @@ import pytest
 from click.testing import CliRunner
 
 from upwork_cli.cli import cli
+from upwork_cli.client import NotAuthenticated
 from upwork_cli.db import init_db
 
 
@@ -31,7 +32,7 @@ def _make_mock_client(authenticated=True):
 
 
 class TestGetCompany:
-    @patch("upwork_cli.commands.messages.UpworkClient")
+    @patch("upwork_cli.commands.messages.get_client")
     def test_nested_dict_structure(self, MockClient, runner, isolated_config):
         from upwork_cli.commands.messages import _get_company
 
@@ -39,7 +40,7 @@ class TestGetCompany:
         result = _get_company(client)
         assert result == "comp-123"
 
-    @patch("upwork_cli.commands.messages.UpworkClient")
+    @patch("upwork_cli.commands.messages.get_client")
     def test_list_structure(self, MockClient, runner, isolated_config):
         from upwork_cli.commands.messages import _get_company
 
@@ -48,7 +49,7 @@ class TestGetCompany:
         result = _get_company(client)
         assert result == "comp-456"
 
-    @patch("upwork_cli.commands.messages.UpworkClient")
+    @patch("upwork_cli.commands.messages.get_client")
     def test_empty_raises_system_exit(self, MockClient, runner, isolated_config):
         from upwork_cli.commands.messages import _get_company
 
@@ -57,7 +58,7 @@ class TestGetCompany:
         with pytest.raises(SystemExit):
             _get_company(client)
 
-    @patch("upwork_cli.commands.messages.UpworkClient")
+    @patch("upwork_cli.commands.messages.get_client")
     def test_api_error_raises_system_exit(self, MockClient, runner, isolated_config):
         from upwork_cli.commands.messages import _get_company
 
@@ -68,7 +69,7 @@ class TestGetCompany:
 
 
 class TestGetUserId:
-    @patch("upwork_cli.commands.messages.UpworkClient")
+    @patch("upwork_cli.commands.messages.get_client")
     def test_happy_path(self, MockClient, runner, isolated_config):
         from upwork_cli.commands.messages import _get_user_id
 
@@ -76,7 +77,7 @@ class TestGetUserId:
         result = _get_user_id(client)
         assert result == "~user001"
 
-    @patch("upwork_cli.commands.messages.UpworkClient")
+    @patch("upwork_cli.commands.messages.get_client")
     def test_error_returns_empty(self, MockClient, runner, isolated_config):
         from upwork_cli.commands.messages import _get_user_id
 
@@ -92,15 +93,15 @@ class TestGetUserId:
 
 
 class TestListRooms:
-    @patch("upwork_cli.commands.messages.UpworkClient")
+    @patch("upwork_cli.commands.messages.get_client")
     def test_not_authenticated(self, MockClient, runner, isolated_config):
         init_db()
-        MockClient.return_value = _make_mock_client(authenticated=False)
+        MockClient.side_effect = NotAuthenticated("not authenticated")
         result = runner.invoke(cli, ["messages", "list"])
         assert result.exit_code != 0
         assert "Not authenticated" in result.output
 
-    @patch("upwork_cli.commands.messages.UpworkClient")
+    @patch("upwork_cli.commands.messages.get_client")
     def test_happy_path(self, MockClient, runner, isolated_config):
         init_db()
         client = _make_mock_client()
@@ -120,7 +121,7 @@ class TestListRooms:
         assert "Recent Conversations" in result.output
         assert "room-001" in result.output
 
-    @patch("upwork_cli.commands.messages.UpworkClient")
+    @patch("upwork_cli.commands.messages.get_client")
     def test_empty_rooms(self, MockClient, runner, isolated_config):
         init_db()
         client = _make_mock_client()
@@ -130,7 +131,7 @@ class TestListRooms:
         assert result.exit_code == 0
         assert "No conversations" in result.output
 
-    @patch("upwork_cli.commands.messages.UpworkClient")
+    @patch("upwork_cli.commands.messages.get_client")
     def test_dict_normalization(self, MockClient, runner, isolated_config):
         """Rooms API sometimes returns a dict instead of a list for single room."""
         init_db()
@@ -152,7 +153,7 @@ class TestListRooms:
         assert result.exit_code == 0
         assert "room-single" in result.output
 
-    @patch("upwork_cli.commands.messages.UpworkClient")
+    @patch("upwork_cli.commands.messages.get_client")
     def test_limit_param(self, MockClient, runner, isolated_config):
         init_db()
         client = _make_mock_client()
@@ -168,7 +169,7 @@ class TestListRooms:
 
 
 class TestReadMessages:
-    @patch("upwork_cli.commands.messages.UpworkClient")
+    @patch("upwork_cli.commands.messages.get_client")
     def test_happy_path(self, MockClient, runner, isolated_config):
         init_db()
         client = _make_mock_client()
@@ -193,7 +194,7 @@ class TestReadMessages:
         assert result.exit_code == 0
         assert "room-001" in result.output
 
-    @patch("upwork_cli.commands.messages.UpworkClient")
+    @patch("upwork_cli.commands.messages.get_client")
     def test_empty_stories(self, MockClient, runner, isolated_config):
         init_db()
         client = _make_mock_client()
@@ -203,7 +204,7 @@ class TestReadMessages:
         assert result.exit_code == 0
         assert "No messages" in result.output
 
-    @patch("upwork_cli.commands.messages.UpworkClient")
+    @patch("upwork_cli.commands.messages.get_client")
     def test_dict_normalization(self, MockClient, runner, isolated_config):
         """Messages API sometimes returns a dict wrapping for stories."""
         init_db()
@@ -224,7 +225,7 @@ class TestReadMessages:
         result = runner.invoke(cli, ["messages", "read", "room-dict"])
         assert result.exit_code == 0
 
-    @patch("upwork_cli.commands.messages.UpworkClient")
+    @patch("upwork_cli.commands.messages.get_client")
     def test_api_error(self, MockClient, runner, isolated_config):
         init_db()
         client = _make_mock_client()
@@ -241,7 +242,7 @@ class TestReadMessages:
 
 
 class TestSendMessage:
-    @patch("upwork_cli.commands.messages.UpworkClient")
+    @patch("upwork_cli.commands.messages.get_client")
     def test_success_with_confirm(self, MockClient, runner, isolated_config):
         init_db()
         client = _make_mock_client()
@@ -253,7 +254,7 @@ class TestSendMessage:
         assert result.exit_code == 0
         assert "sent successfully" in result.output
 
-    @patch("upwork_cli.commands.messages.UpworkClient")
+    @patch("upwork_cli.commands.messages.get_client")
     def test_user_cancels(self, MockClient, runner, isolated_config):
         init_db()
         client = _make_mock_client()
@@ -264,7 +265,7 @@ class TestSendMessage:
         assert result.exit_code == 0
         assert "not sent" in result.output
 
-    @patch("upwork_cli.commands.messages.UpworkClient")
+    @patch("upwork_cli.commands.messages.get_client")
     def test_api_error(self, MockClient, runner, isolated_config):
         init_db()
         client = _make_mock_client()
@@ -283,7 +284,7 @@ class TestSendMessage:
 
 
 class TestFindRoom:
-    @patch("upwork_cli.commands.messages.UpworkClient")
+    @patch("upwork_cli.commands.messages.get_client")
     def test_found_with_messages(self, MockClient, runner, isolated_config):
         init_db()
         client = _make_mock_client()
@@ -303,7 +304,7 @@ class TestFindRoom:
         assert result.exit_code == 0
         assert "room-found" in result.output
 
-    @patch("upwork_cli.commands.messages.UpworkClient")
+    @patch("upwork_cli.commands.messages.get_client")
     def test_not_found(self, MockClient, runner, isolated_config):
         init_db()
         client = _make_mock_client()
@@ -313,7 +314,7 @@ class TestFindRoom:
         assert result.exit_code == 0
         assert "No room found" in result.output
 
-    @patch("upwork_cli.commands.messages.UpworkClient")
+    @patch("upwork_cli.commands.messages.get_client")
     def test_api_error(self, MockClient, runner, isolated_config):
         init_db()
         client = _make_mock_client()

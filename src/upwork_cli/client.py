@@ -545,3 +545,24 @@ class UpworkClient:
     def get_companies(self) -> dict[str, Any]:
         client = self._ensure_client()
         return companies.Api(client).get_list()
+
+
+class NotAuthenticated(RuntimeError):
+    """Raised when a client is requested before OAuth setup has been completed."""
+
+
+def get_client() -> UpworkClient:
+    """Return an authenticated client, or raise.
+
+    The single construction site for the Upwork API. Commands call this
+    rather than building a client themselves, so tests substitute one
+    implementation here instead of patching the name in every module that
+    imports it.
+    """
+    client = UpworkClient(settings=load_settings())
+    if not client.is_authenticated:
+        raise NotAuthenticated(
+            "Not authenticated. Run 'upwork config setup' to configure your "
+            "API credentials."
+        )
+    return client
