@@ -1,5 +1,7 @@
 """Data models for Upwork API responses."""
 
+import json
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -106,6 +108,48 @@ class JobPosting:
             created_at=entry.get("published", ""),
         )
 
+    @classmethod
+    def from_db_row(cls, row: Mapping[str, Any]) -> "JobPosting":
+        """Rebuild a posting from a ``jobs`` row.
+
+        The counterpart to :meth:`to_db_dict`. Lenient by design: only ``id``
+        is required, every other column falls back to its default, because
+        ``MIGRATIONS`` adds columns to databases that already exist and
+        ``_run_migrations`` does not fail loudly when one does not apply.
+
+        ``skills`` is stored as JSON text and comes back as a list.
+
+        Accepts a plain mapping or a ``sqlite3.Row``, which supports indexing
+        but not ``.get()``.
+        """
+        row = dict(row)
+        skills = row.get("skills") or []
+        if isinstance(skills, str):
+            try:
+                skills = json.loads(skills)
+            except (json.JSONDecodeError, TypeError):
+                skills = []
+
+        return cls(
+            id=row["id"],
+            title=row.get("title") or "",
+            description=row.get("description") or "",
+            skills=list(skills),
+            budget_amount=row.get("budget_amount"),
+            budget_currency=row.get("budget_currency") or "USD",
+            duration=row.get("duration") or "",
+            duration_label=row.get("duration_label") or "",
+            engagement=row.get("engagement") or "",
+            created_at=row.get("created_at") or "",
+            client_country=row.get("client_country") or "",
+            client_total_spent=row.get("client_total_spent"),
+            client_total_hires=row.get("client_total_hires"),
+            client_feedback=row.get("client_feedback"),
+            client_verified=bool(row.get("client_verified")),
+            category=row.get("category") or "",
+            subcategory=row.get("subcategory") or "",
+        )
+
     def to_db_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
@@ -115,6 +159,7 @@ class JobPosting:
             "budget_amount": self.budget_amount,
             "budget_currency": self.budget_currency,
             "duration": self.duration,
+            "duration_label": self.duration_label,
             "engagement": self.engagement,
             "client_country": self.client_country,
             "client_total_spent": self.client_total_spent,
@@ -134,8 +179,9 @@ class JobPosting:
             parts.append(f"Skills: {', '.join(self.skills)}")
         if self.budget_amount:
             parts.append(f"Budget: ${self.budget_amount:,.0f} {self.budget_currency}")
-        if self.duration_label:
-            parts.append(f"Duration: {self.duration_label}")
+        duration = self.duration_label or self.duration
+        if duration:
+            parts.append(f"Duration: {duration}")
         if self.engagement:
             parts.append(f"Engagement: {self.engagement}")
         if self.client_country:
@@ -149,6 +195,28 @@ class JobPosting:
         if self.client_verified:
             parts.append("Client: Payment Verified")
         return "\n".join(parts)
+
+
+@dataclass
+class ScoredJob:
+    """A cached job posting together with its AI score, if it has one.
+
+    ``score`` is ``None`` for a job that has not been scored yet, which is
+    what ``jobs score`` selects on.
+    """
+
+    job: JobPosting
+    score: int | None = None
+    reasoning: str = ""
+
+    @classmethod
+    def from_db_row(cls, row: Mapping[str, Any]) -> "ScoredJob":
+        row = dict(row)
+        return cls(
+            job=JobPosting.from_db_row(row),
+            score=row.get("score"),
+            reasoning=row.get("reasoning") or "",
+        )
 
 
 @dataclass

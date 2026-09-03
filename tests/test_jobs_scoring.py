@@ -2,7 +2,7 @@
 
 from unittest.mock import patch
 
-from tests.conftest import _make_job_dict
+from tests.conftest import _make_job_posting
 from upwork_cli.commands.jobs import _score_alert_jobs
 from upwork_cli.db import get_connection, init_db, upsert_job
 from upwork_cli.models import JobPosting
@@ -15,8 +15,8 @@ def _posting(job_id: str, title: str) -> JobPosting:
 class TestScoreAlertJobs:
     def test_failed_scores_not_saved(self, isolated_config):
         init_db()
-        upsert_job(_make_job_dict(id="ok-job"))
-        upsert_job(_make_job_dict(id="bad-job"))
+        upsert_job(_make_job_posting(id="ok-job"))
+        upsert_job(_make_job_posting(id="bad-job"))
 
         scored = [
             {"id": "ok-job", "title": "OK", "score": 8, "reasoning": "Good."},

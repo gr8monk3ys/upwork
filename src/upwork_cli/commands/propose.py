@@ -1,7 +1,6 @@
 """AI-powered proposal / cover letter generation for Upwork jobs."""
 
 import hashlib
-import json
 import os
 import shlex
 import subprocess
@@ -18,7 +17,9 @@ from upwork_cli.ai.drafter import draft_proposal, refine_proposal
 from upwork_cli.client import UpworkClient
 from upwork_cli.config import CONFIG_DIR, load_profile, load_settings
 from upwork_cli.db import (
-    get_connection,
+    get_job,
+    get_latest_proposal,
+    get_proposal,
     get_proposals,
     get_winning_proposals,
     init_db,
@@ -27,49 +28,9 @@ from upwork_cli.db import (
     set_pipeline_stage,
     upsert_job,
 )
+from upwork_cli.models import JobPosting
 
 console = Console()
-
-
-def _normalise_skills(value) -> list[str]:
-    """Return a clean list of skill names from DB or API payloads."""
-    if not value:
-        return []
-    if isinstance(value, list):
-        return [str(item) for item in value if item]
-    if isinstance(value, str):
-        try:
-            parsed = json.loads(value)
-            if isinstance(parsed, list):
-                return [str(item) for item in parsed if item]
-        except json.JSONDecodeError:
-            return [value]
-    return [str(value)]
-
-
-def _get_job_from_db(job_id: str) -> dict | None:
-    """Look up a job from the local database by ID."""
-    with get_connection() as conn:
-        row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
-        return dict(row) if row else None
-
-
-def _get_proposal_by_id(proposal_id: int) -> dict | None:
-    """Load a single proposal by its integer ID."""
-    with get_connection() as conn:
-        row = conn.execute(
-            "SELECT * FROM proposals WHERE id = ?", (proposal_id,)
-        ).fetchone()
-        return dict(row) if row else None
-
-
-def _get_latest_proposal() -> dict | None:
-    """Return the most recently created proposal."""
-    with get_connection() as conn:
-        row = conn.execute(
-            "SELECT * FROM proposals ORDER BY created_at DESC LIMIT 1"
-        ).fetchone()
-        return dict(row) if row else None
 
 
 def _open_in_editor(text: str) -> str:
@@ -113,7 +74,9 @@ def _copy_to_clipboard(text: str) -> bool:
     return False
 
 
-def _job_from_description(text: str, title: str | None, job_id: str | None) -> dict:
+def _job_from_description(
+    text: str, title: str | None, job_id: str | None
+) -> JobPosting:
     """Build and cache a job row from a pasted/filed job description.
 
     This is the API-free path: the description is the source of truth, so
@@ -133,8 +96,9 @@ def _job_from_description(text: str, title: str | None, job_id: str | None) -> d
         digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:8]
         job_id = f"manual-{digest}"
 
-    upsert_job({"id": job_id, "title": title, "description": text})
-    return {"id": job_id, "title": title, "description": text}
+    posting = JobPosting(id=job_id, title=title, description=text)
+    upsert_job(posting)
+    return posting
 
 
 # ---------------------------------------------------------------------------
@@ -233,9 +197,9 @@ def generate(
         job = _job_from_description(
             from_file.read_text(encoding="utf-8"), title, job_id
         )
-        job_id = job["id"]
+        job_id = job.id
     else:
-        job = _get_job_from_db(job_id)
+        job = get_job(job_id)
     if job is None:
         console.print(
             f"[dim]Job {job_id} not in local cache. Fetching from API...[/dim]"
@@ -244,11 +208,9 @@ def generate(
             client = UpworkClient(settings=settings)
             job_data = client.get_job_detail(job_id)
             # Persist to DB for future use
-            from upwork_cli.models import JobPosting
-
             posting = JobPosting.from_rest(job_data)
-            upsert_job(posting.to_db_dict())
-            job = _get_job_from_db(job_id)
+            upsert_job(posting)
+            job = get_job(job_id)
         except Exception as exc:
             console.print(f"[red]Failed to fetch job {job_id}:[/red] {exc}")
             console.print(
@@ -262,36 +224,21 @@ def generate(
         console.print(f"[red]Job {job_id} could not be loaded.[/red]")
         raise SystemExit(1)
 
-    job_title = job.get("title", "Untitled")
+    job_title = job.title or "Untitled"
 
     # 2. Build summaries for the AI ----------------------------------------
-    job_parts = [f"Title: {job.get('title', '')}"]
-    if job.get("description"):
-        job_parts.append(f"Description: {job['description'][:1000]}")
-    skills = _normalise_skills(job.get("skills"))
-    if skills:
-        job_parts.append(f"Skills: {', '.join(skills)}")
-    if job.get("budget_amount"):
-        job_parts.append(f"Budget: ${job['budget_amount']:,.0f}")
-    if job.get("duration"):
-        job_parts.append(f"Duration: {job['duration']}")
-    if job.get("engagement"):
-        job_parts.append(f"Engagement: {job['engagement']}")
-    if job.get("client_verified"):
-        job_parts.append("Client: Payment Verified")
-    job_summary = "\n".join(job_parts)
+    job_summary = job.summary_for_ai()
 
     profile_summary = profile.summary() if profile.title else ""
 
     # 2a. Client research (optional) ---------------------------------------
     has_client_data = any(
-        job.get(key)
-        for key in (
-            "client_total_spent",
-            "client_total_hires",
-            "client_feedback",
-            "client_country",
-            "client_verified",
+        (
+            job.client_total_spent,
+            job.client_total_hires,
+            job.client_feedback,
+            job.client_country,
+            job.client_verified,
         )
     )
     if research and not has_client_data:
@@ -307,11 +254,11 @@ def generate(
             try:
                 client_research = research_client(
                     job_summary=job_summary,
-                    total_spent=job.get("client_total_spent"),
-                    total_hires=job.get("client_total_hires"),
-                    feedback=job.get("client_feedback"),
-                    country=job.get("client_country", ""),
-                    verified=bool(job.get("client_verified")),
+                    total_spent=job.client_total_spent,
+                    total_hires=job.client_total_hires,
+                    feedback=job.client_feedback,
+                    country=job.client_country,
+                    verified=job.client_verified,
                     api_key=settings.anthropic_api_key,
                     model=settings.ai_model,
                 )
@@ -418,12 +365,12 @@ def refine(proposal_id: int | None, feedback: str | None):
         raise SystemExit(1)
 
     if proposal_id is not None:
-        proposal = _get_proposal_by_id(proposal_id)
+        proposal = get_proposal(proposal_id)
         if proposal is None:
             console.print(f"[red]Proposal #{proposal_id} not found.[/red]")
             raise SystemExit(1)
     else:
-        proposal = _get_latest_proposal()
+        proposal = get_latest_proposal()
         if proposal is None:
             console.print(
                 "[red]No proposals found.[/red] Generate one first with [bold]propose generate[/bold]."
@@ -540,7 +487,7 @@ def history(limit: int):
 def show(proposal_id: int, copy_to_clip: bool):
     """Show the full text of PROPOSAL_ID."""
 
-    proposal = _get_proposal_by_id(proposal_id)
+    proposal = get_proposal(proposal_id)
 
     if proposal is None:
         console.print(f"[red]Proposal #{proposal_id} not found.[/red]")
@@ -587,19 +534,12 @@ def prep(job_id: str):
         console.print("[red]Anthropic API key not configured.[/red]")
         raise SystemExit(1)
 
-    job = _get_job_from_db(job_id)
+    job = get_job(job_id)
     if job is None:
         console.print(f"[red]Job {job_id} not found in local cache.[/red]")
         raise SystemExit(1)
 
-    # Build job summary
-    job_parts = [f"Title: {job.get('title', '')}"]
-    if job.get("description"):
-        job_parts.append(f"Description: {job['description'][:1000]}")
-    skills = _normalise_skills(job.get("skills"))
-    if skills:
-        job_parts.append(f"Skills: {', '.join(skills)}")
-    job_summary = "\n".join(job_parts)
+    job_summary = job.summary_for_ai()
     profile_summary = profile.summary() if profile.title else ""
 
     from upwork_cli.ai.interview_prep import generate_interview_prep
@@ -620,7 +560,7 @@ def prep(job_id: str):
     console.print(
         Panel(
             Markdown(prep_text),
-            title=f"Interview Prep — {job.get('title', 'Untitled')}",
+            title=f"Interview Prep — {job.title or 'Untitled'}",
             border_style="green",
         )
     )
@@ -636,7 +576,7 @@ def prep(job_id: str):
 @click.argument("outcome", type=click.Choice(["won", "lost", "no_response"]))
 def mark(proposal_id: int, outcome: str):
     """Mark a proposal's outcome (won/lost/no_response)."""
-    proposal = _get_proposal_by_id(proposal_id)
+    proposal = get_proposal(proposal_id)
     if proposal is None:
         console.print(f"[red]Proposal #{proposal_id} not found.[/red]")
         raise SystemExit(1)

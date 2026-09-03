@@ -27,20 +27,18 @@ class TestJobFromDescription:
         job = _job_from_description(
             "# Senior Python Dev\n\nBuild an API.", title=None, job_id=None
         )
-        assert job["title"] == "Senior Python Dev"
-        assert job["id"].startswith("manual-")
+        assert job.title == "Senior Python Dev"
+        assert job.id.startswith("manual-")
         with get_connection() as conn:
-            row = conn.execute(
-                "SELECT * FROM jobs WHERE id = ?", (job["id"],)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job.id,)).fetchone()
         assert row is not None
         assert "Build an API." in row["description"]
 
     def test_explicit_title_and_id(self, isolated_config):
         init_db()
         job = _job_from_description("text body", title="My Job", job_id="custom-1")
-        assert job["title"] == "My Job"
-        assert job["id"] == "custom-1"
+        assert job.title == "My Job"
+        assert job.id == "custom-1"
 
     def test_empty_text_raises(self, isolated_config):
         init_db()
@@ -51,7 +49,7 @@ class TestJobFromDescription:
         init_db()
         a = _job_from_description("identical posting", title=None, job_id=None)
         b = _job_from_description("identical posting", title=None, job_id=None)
-        assert a["id"] == b["id"]
+        assert a.id == b.id
 
 
 class TestGenerateFromFile:

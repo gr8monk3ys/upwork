@@ -1,5 +1,7 @@
 """Tests for data models in upwork_cli.models."""
 
+import pytest
+
 from upwork_cli.models import Contract, JobPosting, Message
 
 
@@ -83,6 +85,7 @@ class TestToDbDict:
             "budget_amount",
             "budget_currency",
             "duration",
+            "duration_label",
             "engagement",
             "client_country",
             "client_total_spent",
@@ -94,6 +97,55 @@ class TestToDbDict:
             "subcategory",
         }
         assert set(d.keys()) == expected_keys
+
+
+class TestFromDbRow:
+    def test_decodes_json_skills(self):
+        job = JobPosting.from_db_row(
+            {"id": "~01x", "title": "T", "skills": '["Python", "Django"]'}
+        )
+        assert job.skills == ["Python", "Django"]
+
+    def test_tolerates_malformed_skills(self):
+        job = JobPosting.from_db_row({"id": "~01x", "skills": "not json"})
+        assert job.skills == []
+
+    def test_accepts_a_list_unchanged(self):
+        job = JobPosting.from_db_row({"id": "~01x", "skills": ["Go"]})
+        assert job.skills == ["Go"]
+
+    def test_coerces_client_verified_to_bool(self):
+        assert (
+            JobPosting.from_db_row({"id": "~01x", "client_verified": 1}).client_verified
+            is True
+        )
+        assert (
+            JobPosting.from_db_row({"id": "~01x", "client_verified": 0}).client_verified
+            is False
+        )
+
+    def test_defaults_missing_columns(self):
+        """An older database may lack columns that MIGRATIONS adds."""
+        job = JobPosting.from_db_row({"id": "~01x"})
+        assert job.title == ""
+        assert job.budget_currency == "USD"
+        assert job.duration_label == ""
+        assert job.skills == []
+
+    def test_requires_an_id(self):
+        with pytest.raises(KeyError):
+            JobPosting.from_db_row({"title": "no id"})
+
+    def test_round_trips_a_posting(self):
+        original = JobPosting(
+            id="~01x",
+            title="Test",
+            skills=["Python"],
+            duration_label="1 to 3 months",
+            client_verified=True,
+        )
+        row = dict(original.to_db_dict())
+        assert JobPosting.from_db_row(row) == original
 
 
 class TestSummaryForAi:

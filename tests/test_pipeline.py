@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import pytest
 from click.testing import CliRunner
 
-from tests.conftest import _make_job_dict
+from tests.conftest import _make_job_posting
 from upwork_cli.cli import cli
 from upwork_cli.commands.pipeline import _filter_recent_history
 from upwork_cli.db import (
@@ -32,7 +32,7 @@ def runner():
 def seeded_db(isolated_config):
     """Init DB and insert a sample job."""
     init_db()
-    job = _make_job_dict()
+    job = _make_job_posting()
     upsert_job(job)
     return job
 
@@ -40,15 +40,15 @@ def seeded_db(isolated_config):
 class TestPipelineDb:
     def test_set_and_get_stage(self, seeded_db):
         job = seeded_db
-        set_pipeline_stage(job["id"], "found")
+        set_pipeline_stage(job.id, "found")
         jobs = get_pipeline_jobs(stage="found")
         assert len(jobs) == 1
-        assert jobs[0]["job_id"] == job["id"]
+        assert jobs[0]["job_id"] == job.id
 
     def test_move_between_stages(self, seeded_db):
         job = seeded_db
-        set_pipeline_stage(job["id"], "found")
-        set_pipeline_stage(job["id"], "applied")
+        set_pipeline_stage(job.id, "found")
+        set_pipeline_stage(job.id, "applied")
 
         # Should only be in "applied" now
         assert len(get_pipeline_jobs(stage="found")) == 0
@@ -56,11 +56,11 @@ class TestPipelineDb:
 
     def test_history_tracked(self, seeded_db):
         job = seeded_db
-        set_pipeline_stage(job["id"], "found")
-        set_pipeline_stage(job["id"], "applied")
-        set_pipeline_stage(job["id"], "interviewing")
+        set_pipeline_stage(job.id, "found")
+        set_pipeline_stage(job.id, "applied")
+        set_pipeline_stage(job.id, "interviewing")
 
-        history = get_pipeline_history(job["id"])
+        history = get_pipeline_history(job.id)
         assert len(history) == 3
         # Verify all transitions recorded (order may vary with same-second timestamps)
         transitions = [(h["from_stage"], h["to_stage"]) for h in history]
@@ -70,8 +70,8 @@ class TestPipelineDb:
 
     def test_set_if_not_exists_no_overwrite(self, seeded_db):
         job = seeded_db
-        set_pipeline_stage(job["id"], "applied")
-        set_pipeline_stage_if_not_exists(job["id"], "found")
+        set_pipeline_stage(job.id, "applied")
+        set_pipeline_stage_if_not_exists(job.id, "found")
 
         # Should still be "applied"
         jobs = get_pipeline_jobs(stage="applied")
@@ -80,9 +80,9 @@ class TestPipelineDb:
     def test_stats_counts(self, isolated_config):
         init_db()
         for i, stage in enumerate(["found", "found", "applied", "won"]):
-            job = _make_job_dict(id=f"~0{i}")
+            job = _make_job_posting(id=f"~0{i}")
             upsert_job(job)
-            set_pipeline_stage(job["id"], stage)
+            set_pipeline_stage(job.id, stage)
 
         stats = get_pipeline_stats()
         assert stats["stage_counts"]["found"] == 2
@@ -93,7 +93,7 @@ class TestPipelineDb:
 
     def test_get_all_pipeline_jobs(self, seeded_db):
         job = seeded_db
-        set_pipeline_stage(job["id"], "found")
+        set_pipeline_stage(job.id, "found")
         all_jobs = get_pipeline_jobs()
         assert len(all_jobs) == 1
 
@@ -122,9 +122,9 @@ class TestPipelineCli:
 
     def test_move_and_view(self, runner, isolated_config):
         init_db()
-        job = _make_job_dict()
+        job = _make_job_posting()
         upsert_job(job)
-        result = runner.invoke(cli, ["pipeline", "move", job["id"], "found"])
+        result = runner.invoke(cli, ["pipeline", "move", job.id, "found"])
         assert result.exit_code == 0
         assert "moved to" in result.output
 

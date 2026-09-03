@@ -14,6 +14,7 @@ from upwork_cli.client import UpworkClient
 from upwork_cli.config import load_profile, load_settings, save_settings
 from upwork_cli.db import (
     get_bookmarks,
+    get_job,
     get_jobs_with_scores,
     init_db,
     is_seen,
@@ -244,7 +245,7 @@ def _collect_new_jobs(results: list[JobPosting], search_term: str) -> list[JobPo
             continue
         new_jobs.append(job)
         mark_seen(job.id, search_term)
-        upsert_job(job.to_db_dict())
+        upsert_job(job)
         set_pipeline_stage_if_not_exists(job.id, "found")
     return new_jobs
 
@@ -386,7 +387,7 @@ def search(ctx, query, budget_min, budget_max, job_type, posted, limit):
 
     # Cache results in the database and add to pipeline
     for job in results:
-        upsert_job(job.to_db_dict())
+        upsert_job(job)
         set_pipeline_stage_if_not_exists(job.id, "found")
 
     _display_jobs_table(results, title=f"Jobs: {query}")
@@ -650,9 +651,7 @@ def score(ctx):
         )
         return
 
-    cached_jobs = get_jobs_with_scores(limit=50)
-    # Filter to jobs that have not been scored yet
-    unscored = [j for j in cached_jobs if j.get("score") is None]
+    unscored = [sj.job for sj in get_jobs_with_scores(limit=50) if sj.score is None]
 
     if not unscored:
         console.print(
@@ -666,39 +665,10 @@ def score(ctx):
 
     profile_summary = profile.summary()
 
-    # Build the batch input for the scorer
-    batch = []
-    for row in unscored:
-        skills = row.get("skills", "[]")
-        if isinstance(skills, str):
-            try:
-                skills = json.loads(skills)
-            except (json.JSONDecodeError, TypeError):
-                skills = []
-
-        job_obj = JobPosting(
-            id=row["id"],
-            title=row.get("title", ""),
-            description=row.get("description", ""),
-            skills=skills,
-            budget_amount=row.get("budget_amount"),
-            budget_currency=row.get("budget_currency", "USD"),
-            duration=row.get("duration", ""),
-            engagement=row.get("engagement", ""),
-            client_country=row.get("client_country", ""),
-            client_total_spent=row.get("client_total_spent"),
-            client_total_hires=row.get("client_total_hires"),
-            client_feedback=row.get("client_feedback"),
-            client_verified=bool(row.get("client_verified")),
-            created_at=row.get("created_at", ""),
-        )
-        batch.append(
-            {
-                "id": job_obj.id,
-                "title": job_obj.title,
-                "summary": job_obj.summary_for_ai(),
-            }
-        )
+    batch = [
+        {"id": job.id, "title": job.title, "summary": job.summary_for_ai()}
+        for job in unscored
+    ]
 
     scored = score_jobs_batch(
         batch, profile_summary, settings.anthropic_api_key, model=settings.ai_model
@@ -711,6 +681,7 @@ def score(ctx):
             save_score(item["id"], item["score"], item.get("reasoning", ""))
 
     # Display scored results
+    by_id = {job.id: job for job in unscored}
     table = Table(title="Job Scores", show_lines=True)
     table.add_column("Score", justify="center", width=6)
     table.add_column("Title", style="bold cyan", max_width=50)
@@ -719,10 +690,11 @@ def score(ctx):
 
     for item in scored:
         sc = item["score"]
-        # Look up budget from the original row
-        original = next((r for r in unscored if r["id"] == item["id"]), {})
-        budget = _format_budget(
-            original.get("budget_amount"), original.get("budget_currency", "USD")
+        original = by_id.get(item["id"])
+        budget = (
+            _format_budget(original.budget_amount, original.budget_currency)
+            if original
+            else "N/A"
         )
 
         if sc is None:
@@ -834,33 +806,10 @@ def detail(ctx, job_id):
 
     # Fall back to the local DB cache
     if job is None:
-        cached = get_jobs_with_scores(limit=500)
-        match = next((r for r in cached if r["id"] == job_id), None)
-        if match is None:
+        job = get_job(job_id)
+        if job is None:
             console.print(f"[red]Job '{job_id}' not found in API or local cache.[/red]")
             return
-        skills = match.get("skills", "[]")
-        if isinstance(skills, str):
-            try:
-                skills = json.loads(skills)
-            except (json.JSONDecodeError, TypeError):
-                skills = []
-        job = JobPosting(
-            id=match["id"],
-            title=match.get("title", ""),
-            description=match.get("description", ""),
-            skills=skills,
-            budget_amount=match.get("budget_amount"),
-            budget_currency=match.get("budget_currency", "USD"),
-            duration=match.get("duration", ""),
-            engagement=match.get("engagement", ""),
-            client_country=match.get("client_country", ""),
-            client_total_spent=match.get("client_total_spent"),
-            client_total_hires=match.get("client_total_hires"),
-            client_feedback=match.get("client_feedback"),
-            client_verified=bool(match.get("client_verified")),
-            created_at=match.get("created_at", ""),
-        )
 
     # Display full details
     console.print()
