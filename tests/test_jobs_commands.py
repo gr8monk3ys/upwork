@@ -20,14 +20,18 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
+from tests.fakes import FakeUpworkClient, job_node, job_search_payload
 from upwork_cli.cli import cli
+from upwork_cli.client import NotAuthenticated
 from upwork_cli.config import Profile, save_profile
 from upwork_cli.db import get_connection, init_db
 
 
 @pytest.fixture
 def runner():
-    return CliRunner()
+    # Wide enough that Rich renders table cells in full rather than
+    # truncating them to an ellipsis at the default 80 columns.
+    return CliRunner(env={"COLUMNS": "200"})
 
 
 @pytest.fixture
@@ -212,14 +216,93 @@ class TestJobsDetail:
         _seed_job("~01abc123", title="Stale Cached Title")
 
         client = MagicMock()
-        client.is_authenticated = True
         client.get_job_detail.return_value = {
             "id": "~01abc123",
             "title": "Fresh API Title",
             "snippet": "From the API.",
         }
-        with patch("upwork_cli.commands.jobs.UpworkClient", return_value=client):
+        with patch("upwork_cli.commands.jobs.get_client", return_value=client):
             result = runner.invoke(cli, ["jobs", "detail", "~01abc123"])
 
         assert "Fresh API Title" in result.output
         assert "Stale Cached Title" not in result.output
+
+
+class TestJobsSearch:
+    """`jobs search` had no test at all before: the command built its own
+    client, so there was nothing to substitute."""
+
+    def _run(self, runner, args, client=None, **fake_kwargs):
+        client = client if client is not None else FakeUpworkClient(**fake_kwargs)
+        with patch("upwork_cli.commands.jobs.get_client", return_value=client):
+            return runner.invoke(cli, args)
+
+    def test_renders_results_and_caches_them(self, runner, isolated_config):
+
+        result = self._run(
+            runner,
+            ["jobs", "search", "python"],
+            search_results=job_search_payload(
+                job_node("~01a", title="Build a FastAPI service", amount="5000")
+            ),
+        )
+        assert result.exit_code == 0
+        assert "Build a FastAPI service" in result.output
+        assert "1 job(s) found and cached" in result.output
+
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT title FROM jobs WHERE id = ?", ("~01a",)
+            ).fetchone()
+        assert row["title"] == "Build a FastAPI service"
+
+    def test_caches_into_the_pipeline(self, runner, isolated_config):
+
+        self._run(
+            runner,
+            ["jobs", "search", "python"],
+            search_results=job_search_payload(job_node("~01a")),
+        )
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT stage FROM pipeline WHERE job_id = ?", ("~01a",)
+            ).fetchone()
+        assert row["stage"] == "found"
+
+    def test_no_results(self, runner, isolated_config):
+        result = self._run(runner, ["jobs", "search", "nothing"])
+        assert result.exit_code == 0
+        assert "No jobs found" in result.output
+
+    def test_budget_filter_applies(self, runner, isolated_config):
+
+        result = self._run(
+            runner,
+            ["jobs", "search", "python", "--budget-min", "4000"],
+            search_results=job_search_payload(
+                job_node("~01cheap", title="Small gig", amount="500"),
+                job_node("~01rich", title="Big project", amount="9000"),
+            ),
+        )
+        assert "Big project" in result.output
+        assert "Small gig" not in result.output
+
+    def test_api_failure_is_reported_and_exits_zero(self, runner, isolated_config):
+        result = self._run(
+            runner,
+            ["jobs", "search", "python"],
+            search_results=RuntimeError("upstream"),
+        )
+        assert "API search failed" in result.output
+        assert result.exit_code == 0
+
+    def test_unauthenticated_reports_and_exits_zero(self, runner, isolated_config):
+
+        with patch(
+            "upwork_cli.commands.jobs.get_client",
+            side_effect=NotAuthenticated("nope"),
+        ):
+            result = runner.invoke(cli, ["jobs", "search", "python"])
+        # Deliberately exit 0, matching the behaviour this replaced.
+        assert result.exit_code == 0
+        assert "Not authenticated" in result.output

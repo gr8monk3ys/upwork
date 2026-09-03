@@ -9,18 +9,15 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from upwork_cli.client import UpworkClient
+from upwork_cli import jobs as jobs_api
+from upwork_cli.client import NotAuthenticated, UpworkClient, get_client
 from upwork_cli.config import load_profile, load_settings, save_settings
 from upwork_cli.db import (
     get_bookmarks,
     get_job,
     get_unscored_jobs,
     init_db,
-    is_seen,
-    mark_seen,
     save_bookmark,
-    set_pipeline_stage_if_not_exists,
-    upsert_job,
 )
 from upwork_cli.models import JobPosting, ScoreResult
 from upwork_cli.scoring import score_jobs
@@ -131,19 +128,11 @@ def _matches_posted_window(job: JobPosting, posted: str | None) -> bool:
 
 
 def _search_via_api(client: UpworkClient, query: str, limit: int) -> list[JobPosting]:
-    """Fetch jobs from the Upwork API (authenticated)."""
+    """Fetch jobs from the Upwork API, reporting failure to the terminal."""
     try:
-        result = client.search_jobs_graphql(search_term=query, limit=limit)
-        postings = result.get("data", {}).get("marketplaceJobPostings", {})
-        edges = postings.get("edges", [])
-        jobs = []
-        for edge in edges:
-            node = edge.get("node", {})
-            job = JobPosting.from_graphql(node)
-            jobs.append(job)
-        return jobs
-    except Exception as exc:
-        console.print(f"[red]API search failed: {exc}[/red]")
+        return jobs_api.search(client, query, limit)
+    except jobs_api.JobsError as exc:
+        console.print(f"[red]{exc}[/red]")
         return []
 
 
@@ -238,15 +227,7 @@ def _save_search_terms(settings, terms: list[str]) -> None:
 
 def _collect_new_jobs(results: list[JobPosting], search_term: str) -> list[JobPosting]:
     """Persist and return only unseen jobs for a given search term."""
-    new_jobs = []
-    for job in results:
-        if is_seen(job.id):
-            continue
-        new_jobs.append(job)
-        mark_seen(job.id, search_term)
-        upsert_job(job)
-        set_pipeline_stage_if_not_exists(job.id, "found")
-    return new_jobs
+    return jobs_api.collect_new(results, search_term)
 
 
 def _score_alert_jobs(
@@ -352,12 +333,12 @@ def jobs():
 def search(ctx, query, budget_min, budget_max, job_type, posted, limit):
     """Search for jobs on Upwork."""
     init_db()
-    settings = load_settings()
-    client = UpworkClient(settings=settings)
 
     console.print(f"[bold]Searching for:[/bold] {query}")
 
-    if not client.is_authenticated:
+    try:
+        client = get_client()
+    except NotAuthenticated:
         console.print("[red]Not authenticated. Run 'upwork config setup' first.[/red]")
         return
 
@@ -369,10 +350,7 @@ def search(ctx, query, budget_min, budget_max, job_type, posted, limit):
         console.print("[yellow]No jobs found matching your query.[/yellow]")
         return
 
-    # Cache results in the database and add to pipeline
-    for job in results:
-        upsert_job(job)
-        set_pipeline_stage_if_not_exists(job.id, "found")
+    jobs_api.cache(results)
 
     _display_jobs_table(results, title=f"Jobs: {query}")
     console.print(f"\n[dim]{len(results)} job(s) found and cached.[/dim]")
@@ -464,10 +442,11 @@ def _prepare_saved_search_run(
         )
 
     profile_summary = profile.summary() if has_scoring else ""
-    client = UpworkClient(settings=settings)
-    if not client.is_authenticated:
+    try:
+        client = get_client()
+    except NotAuthenticated:
         console.print("[red]Not authenticated. Run 'upwork config setup' first.[/red]")
-        raise SystemExit(1)
+        raise SystemExit(1) from None
 
     return (
         settings,
@@ -714,9 +693,9 @@ def watch(ctx, query, interval, min_score, notify):
         )
 
     profile_summary = profile.summary() if has_scoring else ""
-    client = UpworkClient(settings=settings)
-
-    if not client.is_authenticated:
+    try:
+        client = get_client()
+    except NotAuthenticated:
         console.print("[red]Not authenticated. Run 'upwork config setup' first.[/red]")
         return
 
@@ -752,20 +731,14 @@ def watch(ctx, query, interval, min_score, notify):
 def detail(ctx, job_id):
     """Show full details for a specific job."""
     init_db()
-    settings = load_settings()
-    client = UpworkClient(settings=settings)
-
-    # Try the API first if authenticated
-    if client.is_authenticated:
-        try:
-            data = client.get_job_detail(job_id)
-            job = JobPosting.from_rest(data) if data else None
-        except Exception as exc:
-            console.print(
-                f"[yellow]API lookup failed ({exc}), checking local cache.[/yellow]"
-            )
-            job = None
-    else:
+    # Try the API first, but an unauthenticated client is not an error here:
+    # the local cache is a legitimate answer.
+    try:
+        job = jobs_api.get_detail(get_client(), job_id)
+    except NotAuthenticated:
+        job = None
+    except jobs_api.JobsError as exc:
+        console.print(f"[yellow]{exc}, checking local cache.[/yellow]")
         job = None
 
     # Fall back to the local DB cache
