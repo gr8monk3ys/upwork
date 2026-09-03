@@ -1,7 +1,6 @@
 """Commands for viewing Upwork earnings, contracts, and time tracking."""
 
 import csv
-from datetime import datetime, timedelta
 from io import StringIO
 
 import click
@@ -9,10 +8,16 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from upwork_cli import earnings as earnings_api
 from upwork_cli.client import NotAuthenticated, UpworkClient, get_client
-from upwork_cli.models import Contract
+from upwork_cli.models import Contract, EarningRow
 
 console = Console()
+
+
+def _fail(exc: Exception) -> None:
+    console.print(f"[red]{exc}[/red]")
+    raise SystemExit(1)
 
 
 def _get_client() -> UpworkClient:
@@ -22,19 +27,6 @@ def _get_client() -> UpworkClient:
     except NotAuthenticated:
         console.print("[red]Not authenticated. Run 'upwork config setup' first.[/red]")
         raise SystemExit(1) from None
-
-
-def _get_freelancer_ref(client: UpworkClient) -> str:
-    """Retrieve the freelancer reference from user info."""
-    try:
-        user_info = client.get_user_info()
-        ref = user_info.get("info", {}).get("ref", "")
-        if not ref:
-            ref = user_info.get("ref", user_info.get("id", ""))
-        return ref
-    except Exception as exc:
-        console.print(f"[red]Failed to get user info: {exc}[/red]")
-        raise SystemExit(1)
 
 
 def _safe_float(value, default: float = 0.0) -> float:
@@ -69,23 +61,12 @@ def earnings(ctx: click.Context) -> None:
 def summary() -> None:
     """Show earnings overview with totals for all-time, this month, and this week."""
     client = _get_client()
-    freelancer_ref = _get_freelancer_ref(client)
-
     try:
-        data = client.get_earnings(freelancer_ref)
-    except Exception as exc:
-        console.print(f"[red]Failed to fetch earnings: {exc}[/red]")
-        raise SystemExit(1)
+        rows, _ = earnings_api.fetch(client)
+    except earnings_api.EarningsError as exc:
+        _fail(exc)
 
-    # The API may return data under various keys; try common structures.
-    table_data = (
-        data.get("table", {}).get("rows", [])
-        or data.get("rows", [])
-        or data.get("earnings", [])
-        or []
-    )
-
-    if not table_data:
+    if not rows:
         console.print(
             Panel(
                 "[yellow]No earnings data available yet.[/yellow]\n\n"
@@ -96,60 +77,15 @@ def summary() -> None:
         )
         return
 
-    total_earned: float = 0.0
-    this_month: float = 0.0
-    this_week: float = 0.0
-
-    # Naive local time on purpose: Upwork's earnings rows carry bare dates
-    # with no zone (parsed naive below), and month/week buckets should follow
-    # the user's calendar. Mixing aware and naive datetimes would raise.
-    now = datetime.now()  # noqa: DTZ005
-    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    week_start = now - timedelta(days=now.weekday())
-    week_start = week_start.replace(hour=0, minute=0, second=0, microsecond=0)
-
-    for row in table_data:
-        # Handle both dict-style rows and list-style cell arrays.
-        if isinstance(row, dict):
-            amount = _safe_float(
-                row.get("amount") or row.get("charge_amount") or row.get("total_charge")
-            )
-            date_str = row.get(
-                "date", row.get("worked_on", row.get("date_created", ""))
-            )
-        elif isinstance(row, list):
-            # Assume last cell is amount, first is date.
-            amount = _safe_float(row[-1]) if row else 0.0
-            date_str = str(row[0]) if row else ""
-        else:
-            continue
-
-        total_earned += amount
-
-        # Try to parse the date for period bucketing.
-        row_date = None
-        for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%m/%d/%Y", "%Y%m%d"):
-            try:
-                row_date = datetime.strptime(date_str[:10], fmt)  # noqa: DTZ007
-                break
-            except (ValueError, TypeError):
-                continue
-
-        if row_date:
-            if row_date >= month_start:
-                this_month += amount
-            if row_date >= week_start:
-                this_week += amount
-
-    summary_text = (
-        f"[bold green]Total Earned:[/bold green]   {_format_currency(total_earned)}\n"
-        f"[bold cyan]This Month:[/bold cyan]     {_format_currency(this_month)}\n"
-        f"[bold blue]This Week:[/bold blue]      {_format_currency(this_week)}"
-    )
-
+    totals = earnings_api.summarise(rows)
     console.print(
         Panel(
-            summary_text,
+            f"[bold green]Total Earned:[/bold green]   "
+            f"{_format_currency(totals.total)}\n"
+            f"[bold cyan]This Month:[/bold cyan]     "
+            f"{_format_currency(totals.this_month)}\n"
+            f"[bold blue]This Week:[/bold blue]      "
+            f"{_format_currency(totals.this_week)}",
             title="Earnings Summary",
             border_style="green",
         )
@@ -171,95 +107,33 @@ def summary() -> None:
 def report(from_date: str | None, to_date: str | None, output_format: str) -> None:
     """Show a detailed earnings report, optionally filtered by date range."""
     client = _get_client()
-    freelancer_ref = _get_freelancer_ref(client)
-
-    params: dict = {}
-    if from_date:
-        params["tq"] = params.get("tq", "") + f" AND date >= '{from_date}'"
-    if to_date:
-        tq = params.get("tq", "")
-        clause = f"date <= '{to_date}'"
-        params["tq"] = f"{tq} AND {clause}" if tq else clause
-
-    # Clean up leading " AND ".
-    if "tq" in params and params["tq"].startswith(" AND "):
-        params["tq"] = params["tq"][5:]
-
     try:
-        data = client.get_earnings(freelancer_ref, params if params else None)
-    except Exception as exc:
-        console.print(f"[red]Failed to fetch earnings report: {exc}[/red]")
-        raise SystemExit(1)
+        rows, payload = earnings_api.fetch(client, from_date, to_date)
+    except earnings_api.EarningsError as exc:
+        _fail(exc)
 
-    table_data = (
-        data.get("table", {}).get("rows", [])
-        or data.get("rows", [])
-        or data.get("earnings", [])
-        or []
-    )
-
-    if not table_data:
+    if not rows:
         console.print("[yellow]No earnings found for the specified period.[/yellow]")
         return
 
-    # Extract column headers from the response, fall back to defaults.
-    columns = data.get("table", {}).get("cols", []) or data.get("cols", []) or []
-    col_names = [
-        c.get("label", c.get("name", f"Col {i}")) for i, c in enumerate(columns)
-    ]
-    if not col_names:
-        col_names = ["Date", "Client", "Contract", "Amount", "Type"]
-
-    # Normalise each row into a list of string values.
-    rows: list[list[str]] = []
-    for row in table_data:
-        if isinstance(row, dict):
-            cells = row.get("c", [])
-            if cells and isinstance(cells, list):
-                rows.append(
-                    [
-                        str((c or {}).get("v", "")) if isinstance(c, dict) else str(c)
-                        for c in cells
-                    ]
-                )
-            else:
-                # Flat dict: pull values matching column order where possible.
-                rows.append(
-                    [
-                        str(row.get("date", row.get("worked_on", ""))),
-                        str(row.get("client", row.get("buyer_company_name", ""))),
-                        str(row.get("contract", row.get("engagement_title", ""))),
-                        str(
-                            row.get(
-                                "amount",
-                                row.get("charge_amount", row.get("total_charge", "")),
-                            )
-                        ),
-                        str(row.get("type", row.get("subtype", ""))),
-                    ]
-                )
-        elif isinstance(row, list):
-            rows.append([str(v) for v in row])
+    col_names = earnings_api.column_names(payload)
+    cells = [row.as_cells() for row in rows]
 
     if output_format == "csv":
         buf = StringIO()
         writer = csv.writer(buf)
         writer.writerow(col_names)
-        writer.writerows(rows)
+        writer.writerows(cells)
         click.echo(buf.getvalue())
         return
 
-    # Rich table output.
-    rich_table = Table(title="Earnings Report", show_lines=True)
+    table = Table(title="Earnings Report", show_lines=True)
     for name in col_names:
-        rich_table.add_column(name, style="cyan")
-
-    for row in rows:
-        # Pad row to match column count.
-        padded = row + [""] * (len(col_names) - len(row))
-        rich_table.add_row(*padded[: len(col_names)])
-
-    console.print(rich_table)
+        table.add_column(str(name))
+    for row in cells:
+        table.add_row(*[str(c) for c in row[: len(col_names)]])
+    console.print(table)
+    console.print(f"\n[dim]{len(rows)} record(s).[/dim]")
 
 
 @earnings.command("export")
@@ -271,75 +145,27 @@ def report(from_date: str | None, to_date: str | None, output_format: str) -> No
     help="Output file path.",
 )
 def export(output_file: str) -> None:
-    """Export earnings data to a CSV file."""
+    """Export all earnings records to a CSV file."""
     client = _get_client()
-    freelancer_ref = _get_freelancer_ref(client)
-
     try:
-        data = client.get_earnings(freelancer_ref)
-    except Exception as exc:
-        console.print(f"[red]Failed to fetch earnings: {exc}[/red]")
-        raise SystemExit(1)
+        rows, _ = earnings_api.fetch(client)
+    except earnings_api.EarningsError as exc:
+        _fail(exc)
 
-    table_data = (
-        data.get("table", {}).get("rows", [])
-        or data.get("rows", [])
-        or data.get("earnings", [])
-        or []
-    )
-
-    if not table_data:
+    if not rows:
         console.print("[yellow]No earnings data to export.[/yellow]")
         return
 
-    fieldnames = ["Date", "Client", "Contract", "Amount", "Type"]
-
-    rows: list[dict[str, str]] = []
-    for row in table_data:
-        if isinstance(row, dict):
-            cells = row.get("c", [])
-            if cells and isinstance(cells, list):
-                values = [
-                    (c or {}).get("v", "") if isinstance(c, dict) else c for c in cells
-                ]
-                entry = {}
-                for idx, name in enumerate(fieldnames):
-                    entry[name] = str(values[idx]) if idx < len(values) else ""
-                rows.append(entry)
-            else:
-                rows.append(
-                    {
-                        "Date": str(row.get("date", row.get("worked_on", ""))),
-                        "Client": str(
-                            row.get("client", row.get("buyer_company_name", ""))
-                        ),
-                        "Contract": str(
-                            row.get("contract", row.get("engagement_title", ""))
-                        ),
-                        "Amount": str(
-                            row.get(
-                                "amount",
-                                row.get("charge_amount", row.get("total_charge", "")),
-                            )
-                        ),
-                        "Type": str(row.get("type", row.get("subtype", ""))),
-                    }
-                )
-        elif isinstance(row, list):
-            entry = {}
-            for idx, name in enumerate(fieldnames):
-                entry[name] = str(row[idx]) if idx < len(row) else ""
-            rows.append(entry)
-
     try:
         with open(output_file, "w", newline="") as fh:
-            writer = csv.DictWriter(fh, fieldnames=fieldnames)
-            writer.writeheader()
-            writer.writerows(rows)
-        console.print(f"[green]Exported {len(rows)} records to {output_file}[/green]")
+            writer = csv.writer(fh)
+            writer.writerow(list(EarningRow.COLUMNS))
+            writer.writerows(row.as_cells() for row in rows)
     except OSError as exc:
         console.print(f"[red]Failed to write file: {exc}[/red]")
-        raise SystemExit(1)
+        raise SystemExit(1) from exc
+
+    console.print(f"[green]Exported {len(rows)} records to {output_file}[/green]")
 
 
 # ---------------------------------------------------------------------------
