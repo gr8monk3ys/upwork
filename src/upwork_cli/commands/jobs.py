@@ -9,7 +9,6 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from upwork_cli.ai.scorer import score_jobs_batch
 from upwork_cli.client import UpworkClient
 from upwork_cli.config import load_profile, load_settings, save_settings
 from upwork_cli.db import (
@@ -20,11 +19,11 @@ from upwork_cli.db import (
     is_seen,
     mark_seen,
     save_bookmark,
-    save_score,
     set_pipeline_stage_if_not_exists,
     upsert_job,
 )
-from upwork_cli.models import JobPosting
+from upwork_cli.models import JobPosting, ScoreResult
+from upwork_cli.scoring import score_jobs
 
 console = Console()
 
@@ -257,37 +256,22 @@ def _score_alert_jobs(
     profile_summary: str,
     api_key: str,
     model: str = "",
-) -> list[dict]:
-    """Score new jobs when possible and return only alert-worthy items."""
+) -> list[ScoreResult]:
+    """Score new jobs when possible and return only alert-worthy ones."""
     if not has_scoring:
-        return [{"id": job.id, "title": job.title, "score": "?"} for job in new_jobs]
+        return [ScoreResult(job=job) for job in new_jobs]
 
-    batch = [
-        {
-            "id": job.id,
-            "title": job.title,
-            "summary": job.summary_for_ai(),
-        }
-        for job in new_jobs
-    ]
-    scored = score_jobs_batch(batch, profile_summary, api_key, model=model or None)
-    # Failed scores (score=None) stay unsaved so the job is re-scored next cycle
-    # instead of being permanently buried at 0.
-    for item in scored:
-        if item["score"] is not None:
-            save_score(item["id"], item["score"], item.get("reasoning", ""))
-    return [
-        item
-        for item in scored
-        if item["score"] is not None and item["score"] >= min_score
-    ]
+    results = score_jobs(new_jobs, profile_summary, api_key, model=model or None)
+    return [r for r in results if r.score is not None and r.score >= min_score]
 
 
-def _notify_hot_jobs(hot_jobs: list[dict], notify: str, webhook_url: str) -> None:
+def _notify_hot_jobs(
+    hot_jobs: list[ScoreResult], notify: str, webhook_url: str
+) -> None:
     """Emit terminal or Discord alerts for high-priority jobs."""
-    for item in hot_jobs:
-        title = item.get("title", "Untitled")
-        score = item.get("score", "?")
+    for result in hot_jobs:
+        title = result.job.title or "Untitled"
+        score = result.score if result.score is not None else "?"
         alert_msg = f"[Score {score}] {title}"
 
         if notify == "terminal":
@@ -663,57 +647,37 @@ def score(ctx):
         f"[bold]Scoring {len(unscored)} job(s) against your profile...[/bold]\n"
     )
 
-    profile_summary = profile.summary()
-
-    batch = [
-        {"id": job.id, "title": job.title, "summary": job.summary_for_ai()}
-        for job in unscored
-    ]
-
-    scored = score_jobs_batch(
-        batch, profile_summary, settings.anthropic_api_key, model=settings.ai_model
+    results = score_jobs(
+        unscored,
+        profile.summary(),
+        settings.anthropic_api_key,
+        model=settings.ai_model,
     )
 
-    # Save scores to the database; failed jobs (score=None) stay unscored so
-    # the next run retries them instead of caching a bogus 0.
-    for item in scored:
-        if item["score"] is not None:
-            save_score(item["id"], item["score"], item.get("reasoning", ""))
-
-    # Display scored results
-    by_id = {job.id: job for job in unscored}
     table = Table(title="Job Scores", show_lines=True)
     table.add_column("Score", justify="center", width=6)
     table.add_column("Title", style="bold cyan", max_width=50)
     table.add_column("Budget", justify="right")
     table.add_column("Reasoning", max_width=60)
 
-    for item in scored:
-        sc = item["score"]
-        original = by_id.get(item["id"])
-        budget = (
-            _format_budget(original.budget_amount, original.budget_currency)
-            if original
-            else "N/A"
-        )
-
-        if sc is None:
+    for result in results:
+        if result.score is None:
             score_cell = "[red]—[/red]"
-            reasoning = f"[red]{item.get('error', 'Scoring failed')}[/red]"
+            reasoning = f"[red]{result.error or 'Scoring failed'}[/red]"
         else:
-            color = _score_color(sc)
-            score_cell = f"[{color}]{sc}[/{color}]"
-            reasoning = item.get("reasoning", "")
+            color = _score_color(result.score)
+            score_cell = f"[{color}]{result.score}[/{color}]"
+            reasoning = result.reasoning
 
         table.add_row(
             score_cell,
-            _truncate(item.get("title", ""), 50),
-            budget,
+            _truncate(result.job.title, 50),
+            _format_budget(result.job.budget_amount, result.job.budget_currency),
             reasoning,
         )
 
     console.print(table)
-    console.print(f"\n[dim]{len(scored)} job(s) scored.[/dim]")
+    console.print(f"\n[dim]{len(results)} job(s) scored.[/dim]")
 
 
 @jobs.command()

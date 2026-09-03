@@ -8,6 +8,10 @@ observable behavior.
 Rows are seeded with raw SQL on purpose: the seeding must stay valid across a
 refactor that changes ``upsert_job``'s interface, so it depends only on the
 schema.
+
+The scorer is patched at ``upwork_cli.scoring`` -- where it is imported, not
+where it is defined. That target moves whenever the call moves, which is the
+cost of mocking an import site rather than an interface.
 """
 
 import json
@@ -88,9 +92,7 @@ class TestJobsScore:
         scored = [
             {"id": "job-a", "title": "Job A", "score": 8, "reasoning": "Good fit"}
         ]
-        with patch(
-            "upwork_cli.commands.jobs.score_jobs_batch", return_value=scored
-        ) as batch:
+        with patch("upwork_cli.scoring.score_jobs_batch", return_value=scored) as batch:
             result = runner.invoke(cli, ["jobs", "score"])
 
         assert result.exit_code == 0
@@ -109,9 +111,7 @@ class TestJobsScore:
         init_db()
         _seed_job("job-a")
 
-        with patch(
-            "upwork_cli.commands.jobs.score_jobs_batch", return_value=[]
-        ) as batch:
+        with patch("upwork_cli.scoring.score_jobs_batch", return_value=[]) as batch:
             runner.invoke(cli, ["jobs", "score"])
 
         summary = batch.call_args[0][0][0]["summary"]
@@ -129,7 +129,7 @@ class TestJobsScore:
             {"id": "ok-job", "title": "OK", "score": 8, "reasoning": "Good."},
             {"id": "bad-job", "title": "Bad", "score": None, "error": "API down"},
         ]
-        with patch("upwork_cli.commands.jobs.score_jobs_batch", return_value=scored):
+        with patch("upwork_cli.scoring.score_jobs_batch", return_value=scored):
             result = runner.invoke(cli, ["jobs", "score"])
 
         assert result.exit_code == 0
@@ -142,7 +142,7 @@ class TestJobsScore:
         _seed_job("scored-job")
         _seed_score("scored-job", 7)
 
-        with patch("upwork_cli.commands.jobs.score_jobs_batch") as batch:
+        with patch("upwork_cli.scoring.score_jobs_batch") as batch:
             result = runner.invoke(cli, ["jobs", "score"])
 
         batch.assert_not_called()

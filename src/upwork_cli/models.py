@@ -220,6 +220,21 @@ class ScoredJob:
 
 
 @dataclass
+class ScoreResult:
+    """The outcome of one attempt to score a Job against the Profile.
+
+    ``score`` is None when the attempt failed and ``error`` says why. A
+    failed attempt is never persisted, so a transient API failure cannot
+    permanently bury a job.
+    """
+
+    job: JobPosting
+    score: int | None = None
+    reasoning: str = ""
+    error: str = ""
+
+
+@dataclass
 class Contract:
     id: str
     title: str
