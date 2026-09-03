@@ -5,7 +5,9 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from upwork_cli import applications as applications_api
 from upwork_cli.client import NotAuthenticated, UpworkClient, get_client
+from upwork_cli.models import Offer, OfferTerms
 
 console = Console()
 
@@ -60,102 +62,31 @@ def _get_client() -> UpworkClient:
         raise SystemExit(1) from None
 
 
-def _format_money(money: dict | None) -> str:
-    """Format a GraphQL Money object."""
-    money = money or {}
-    amount = money.get("amount")
-    currency = money.get("currencyCode", "USD")
-    if amount in (None, ""):
+def _fail(exc: Exception) -> None:
+    console.print(f"[red]{exc}[/red]")
+    raise SystemExit(1)
+
+
+def _format_amount(amount: float | None, currency: str = "USD") -> str:
+    """Format a money amount for display."""
+    if amount is None:
         return "N/A"
-    try:
-        return f"${float(amount):,.2f} {currency}"
-    except (TypeError, ValueError):
-        return f"{amount} {currency}".strip()
+    return f"${amount:,.2f} {currency}"
 
 
-def _application_timestamp(application: dict, preferred: str = "modified") -> str:
-    """Return the preferred audit timestamp for sorting and display."""
-    audit = application.get("auditDetails") or {}
-    if preferred == "created":
-        return audit.get("createdDateTime", "")
-    if preferred == "status":
-        return audit.get("statusChangedDateTime", audit.get("modifiedDateTime", ""))
-    return audit.get("modifiedDateTime") or audit.get("createdDateTime", "")
+def _format_terms(terms: OfferTerms) -> str:
+    """Render offer terms into a short summary."""
+    if terms.amount is None:
+        return "N/A"
+    money = f"${terms.amount:,.2f} {terms.currency}"
+    if not terms.is_fixed and terms.weekly_hours_limit is not None:
+        return f"{money} / {terms.weekly_hours_limit} hrs"
+    return money
 
 
-def _offer_identifier(offer_result: dict) -> str:
-    """Return the actual offer id when the connection wraps it."""
-    offer = offer_result.get("offer") or {}
-    return str(offer.get("id") or offer_result.get("id", ""))
-
-
-def _offer_client_name(offer_data: dict) -> str:
-    """Extract a readable client/company name from offer payloads."""
-    company = offer_data.get("company") or {}
-    client = offer_data.get("client") or {}
-    if company.get("name"):
-        return str(company["name"])
-    if client.get("name"):
-        return str(client["name"])
-    return "N/A"
-
-
-def _format_offer_terms(terms: dict | None) -> str:
-    """Render fixed-price or hourly offer terms into a short summary."""
-    terms = terms or {}
-    fixed_price = terms.get("fixedPriceTerm") or {}
-    hourly = terms.get("hourlyTerms") or {}
-
-    if fixed_price.get("budget"):
-        return _format_money(fixed_price.get("budget"))
-
-    rate = hourly.get("rate") or {}
-    if rate.get("amount") not in (None, ""):
-        weekly_limit = hourly.get("weeklyHoursLimit")
-        detail = _format_money(rate)
-        if weekly_limit not in (None, ""):
-            detail += f" / {weekly_limit} hrs"
-        return detail
-
-    return "N/A"
-
-
-def _collect_applications(
-    client: UpworkClient,
-    statuses: list[str],
-    limit: int,
-    sort_field: str,
-) -> list[dict]:
-    """Fetch applications across one or more statuses and return unique nodes."""
-    applications: dict[str, dict] = {}
-
-    for status in statuses:
-        result = client.get_applications(
-            {
-                "status": status,
-                "limit": limit,
-                "sort_field": sort_field,
-                "sort_order": "DESC",
-            }
-        )
-        for edge in result.get("edges", []):
-            node = edge.get("node") or {}
-            app_id = str(node.get("id", ""))
-            if app_id and app_id not in applications:
-                applications[app_id] = node
-
-    preferred = "created" if sort_field == "CreatedDateTime" else "modified"
-    sorted_items = sorted(
-        applications.values(),
-        key=lambda item: _application_timestamp(item, preferred=preferred),
-        reverse=True,
-    )
-    return sorted_items[:limit]
-
-
-def _render_related_offers(offers: list[dict]) -> None:
+def _render_related_offers(offers_found: list[Offer]) -> None:
     """Render offers linked to an application."""
-    if not offers:
+    if not offers_found:
         return
 
     table = Table(title="Related Offers", show_lines=True)
@@ -165,13 +96,13 @@ def _render_related_offers(offers: list[dict]) -> None:
     table.add_column("Client", style="magenta")
     table.add_column("Terms", justify="right")
 
-    for offer in offers:
+    for offer in offers_found:
         table.add_row(
-            str(offer.get("id", "")),
-            str(offer.get("title", "")),
-            str(offer.get("state", "Unknown")),
-            _offer_client_name(offer),
-            _format_offer_terms(offer.get("offerTerms")),
+            offer.id,
+            offer.title,
+            offer.state or "Unknown",
+            offer.client_name or "N/A",
+            _format_terms(offer.terms),
         )
 
     console.print(table)
@@ -220,14 +151,13 @@ def list_applications(status: str, sort_name: str, limit: int) -> None:
     sort_field = APPLICATION_SORT_FIELDS[sort_name.lower()]
 
     try:
-        applications_data = _collect_applications(
+        found = applications_api.list_applications(
             client, statuses=statuses, limit=limit, sort_field=sort_field
         )
-    except Exception as exc:
-        console.print(f"[red]Failed to fetch applications: {exc}[/red]")
-        raise SystemExit(1)
+    except applications_api.ApplicationsError as exc:
+        _fail(exc)
 
-    if not applications_data:
+    if not found:
         console.print("[yellow]No applications found for the selected filter.[/yellow]")
         return
 
@@ -238,16 +168,13 @@ def list_applications(status: str, sort_name: str, limit: int) -> None:
     table.add_column("Submitted", style="magenta", no_wrap=True)
     table.add_column("Updated", style="magenta", no_wrap=True)
 
-    for application in applications_data:
-        job = application.get("marketplaceJobPosting") or {}
-        status_data = application.get("status") or {}
-        audit = application.get("auditDetails") or {}
+    for application in found:
         table.add_row(
-            str(application.get("id", "")),
-            str(job.get("title", "Untitled")),
-            str(status_data.get("status", "Unknown")),
-            str(audit.get("createdDateTime", "")),
-            str(audit.get("modifiedDateTime", "")),
+            application.id,
+            application.job_title or "Untitled",
+            application.status or "Unknown",
+            application.created_at,
+            application.modified_at,
         )
 
     console.print(table)
@@ -260,62 +187,46 @@ def show_application(application_id: str) -> None:
     client = _get_client()
 
     try:
-        application = client.get_application(application_id)
-        related_offers = client.get_offers_for_application(application_id, limit=10)
-    except Exception as exc:
-        console.print(f"[red]Failed to fetch application {application_id}: {exc}[/red]")
-        raise SystemExit(1)
+        application = applications_api.get_application(client, application_id)
+        related_offers = applications_api.offers_for_application(
+            client, application_id, limit=10
+        )
+    except applications_api.ApplicationsError as exc:
+        _fail(exc)
 
-    if not application:
+    if application is None:
         console.print(f"[yellow]Application {application_id} was not found.[/yellow]")
         raise SystemExit(1)
 
-    job = application.get("marketplaceJobPosting") or {}
-    client_info = job.get("client") or {}
-    status_data = application.get("status") or {}
-    audit = application.get("auditDetails") or {}
-    cover_letter = (
-        application.get("proposalCoverLetter")
-        or application.get("coverLetter")
-        or "(empty)"
-    )
-
+    job = application.job
     summary = [
-        f"[bold]Application ID:[/bold] {application.get('id', '')}",
-        f"[bold]Status:[/bold] {status_data.get('status', 'Unknown')}",
-        f"[bold]Job:[/bold] {job.get('title', 'Untitled')}",
-        f"[bold]Budget:[/bold] {_format_money(job.get('amount'))}",
-        f"[bold]Engagement:[/bold] {job.get('engagement', 'N/A')}",
-        f"[bold]Duration:[/bold] {job.get('durationLabel', 'N/A')}",
-        f"[bold]Submitted:[/bold] {audit.get('createdDateTime', '')}",
-        f"[bold]Updated:[/bold] {audit.get('modifiedDateTime', '')}",
-        f"[bold]Client Country:[/bold] {(client_info.get('location') or {}).get('country', 'N/A')}",
-        f"[bold]Client Verified:[/bold] {client_info.get('verificationStatus', 'UNKNOWN')}",
-        f"[bold]Client Spend:[/bold] {_format_money(client_info.get('totalSpent'))}",
-        f"[bold]Client Hires:[/bold] {client_info.get('totalHires', 'N/A')}",
+        f"[bold]Application ID:[/bold] {application.id}",
+        f"[bold]Status:[/bold] {application.status or 'Unknown'}",
+        f"[bold]Job:[/bold] {application.job_title or 'Untitled'}",
+        f"[bold]Budget:[/bold] {_format_amount(job.budget_amount if job else None, job.budget_currency if job else 'USD')}",
+        f"[bold]Engagement:[/bold] {(job.engagement if job else '') or 'N/A'}",
+        f"[bold]Duration:[/bold] {(job.duration_label if job else '') or 'N/A'}",
+        f"[bold]Submitted:[/bold] {application.created_at}",
+        f"[bold]Updated:[/bold] {application.modified_at}",
+        f"[bold]Client Country:[/bold] {(job.client_country if job else '') or 'N/A'}",
+        f"[bold]Client Verified:[/bold] {'VERIFIED' if job and job.client_verified else 'UNKNOWN'}",
+        f"[bold]Client Spend:[/bold] {_format_amount(job.client_total_spent if job else None)}",
+        f"[bold]Client Hires:[/bold] {(job.client_total_hires if job else None) if job and job.client_total_hires is not None else 'N/A'}",
     ]
 
     console.print(
-        Panel(
-            "\n".join(summary),
-            title="Application Details",
-            border_style="cyan",
-        )
+        Panel("\n".join(summary), title="Application Details", border_style="cyan")
     )
 
-    description = str(job.get("description", "")).strip()
+    description = (job.description if job else "").strip()
     if description:
         console.print(
-            Panel(
-                description,
-                title="Job Description",
-                border_style="magenta",
-            )
+            Panel(description, title="Job Description", border_style="magenta")
         )
 
     console.print(
         Panel(
-            cover_letter,
+            application.cover_letter or "(empty)",
             title="Cover Letter",
             border_style="green",
         )
@@ -351,19 +262,11 @@ def list_offers(state: str | None, limit: int) -> None:
     gql_state = OFFER_STATES[state.lower()] if state else None
 
     try:
-        result = client.get_offers({"limit": limit, "state": gql_state})
-    except Exception as exc:
-        console.print(f"[red]Failed to fetch offers: {exc}[/red]")
-        raise SystemExit(1)
+        found = applications_api.list_offers(client, state=gql_state, limit=limit)
+    except applications_api.ApplicationsError as exc:
+        _fail(exc)
 
-    offers_data = []
-    for edge in result.get("edges", []):
-        node = edge.get("node") or {}
-        offer_id = _offer_identifier(node)
-        if offer_id:
-            offers_data.append(node)
-
-    if not offers_data:
+    if not found:
         console.print("[yellow]No offers found for the selected filter.[/yellow]")
         return
 
@@ -375,18 +278,14 @@ def list_offers(state: str | None, limit: int) -> None:
     table.add_column("Client", style="magenta")
     table.add_column("Updated", style="magenta", no_wrap=True)
 
-    for offer in offers_data:
+    for offer in found:
         table.add_row(
-            _offer_identifier(offer),
-            str(offer.get("title", "")),
-            str(offer.get("state", "Unknown")),
-            str(offer.get("type", "Unknown")),
-            _offer_client_name(offer),
-            str(
-                offer.get("lastUpdatedDateTime")
-                or offer.get("lastPublishedDateTime")
-                or ""
-            ),
+            offer.id,
+            offer.title,
+            offer.state or "Unknown",
+            offer.kind or "Unknown",
+            offer.client_name or "N/A",
+            offer.updated_at,
         )
 
     console.print(table)
@@ -399,54 +298,49 @@ def show_offer(offer_id: str) -> None:
     client = _get_client()
 
     try:
-        offer = client.get_offer(offer_id)
-    except Exception as exc:
-        console.print(f"[red]Failed to fetch offer {offer_id}: {exc}[/red]")
-        raise SystemExit(1)
+        offer = applications_api.get_offer(client, offer_id)
+    except applications_api.ApplicationsError as exc:
+        _fail(exc)
 
-    if not offer:
+    if offer is None:
         console.print(f"[yellow]Offer {offer_id} was not found.[/yellow]")
         raise SystemExit(1)
 
-    terms = offer.get("offerTerms") or {}
-    vendor_proposal = offer.get("vendorProposal") or {}
     lines = [
-        f"[bold]Offer ID:[/bold] {offer.get('id', '')}",
-        f"[bold]State:[/bold] {offer.get('state', 'Unknown')}",
-        f"[bold]Type:[/bold] {offer.get('type', 'Unknown')}",
-        f"[bold]Client:[/bold] {_offer_client_name(offer)}",
-        f"[bold]Job:[/bold] {(offer.get('job') or {}).get('title', 'N/A')}",
-        f"[bold]Application ID:[/bold] {vendor_proposal.get('id', 'N/A')}",
-        f"[bold]Application Status:[/bold] {(vendor_proposal.get('status') or {}).get('status', 'N/A')}",
-        f"[bold]Terms:[/bold] {_format_offer_terms(terms)}",
-        f"[bold]Start Date:[/bold] {terms.get('expectedStartDate', 'N/A')}",
-        f"[bold]End Date:[/bold] {terms.get('expectedEndDate', 'N/A')}",
-        f"[bold]Close Job On Accept:[/bold] {offer.get('closeJobPostingOnAccept', False)}",
+        f"[bold]Offer ID:[/bold] {offer.id}",
+        f"[bold]State:[/bold] {offer.state or 'Unknown'}",
+        f"[bold]Type:[/bold] {offer.kind or 'Unknown'}",
+        f"[bold]Client:[/bold] {offer.client_name or 'N/A'}",
+        f"[bold]Job:[/bold] {offer.job_title or 'N/A'}",
+        f"[bold]Application ID:[/bold] {offer.application_id or 'N/A'}",
+        f"[bold]Application Status:[/bold] {offer.application_status or 'N/A'}",
+        f"[bold]Terms:[/bold] {_format_terms(offer.terms)}",
+        f"[bold]Start Date:[/bold] {offer.terms.start_date or 'N/A'}",
+        f"[bold]End Date:[/bold] {offer.terms.end_date or 'N/A'}",
+        f"[bold]Close Job On Accept:[/bold] {offer.close_job_on_accept}",
     ]
 
     console.print(
         Panel(
             "\n".join(lines),
-            title=str(offer.get("title", "Offer Details")),
+            title=offer.title or "Offer Details",
             border_style="cyan",
         )
     )
 
-    description = str(offer.get("description", "")).strip()
-    if description:
+    if offer.description.strip():
         console.print(
             Panel(
-                description,
+                offer.description.strip(),
                 title="Offer Description",
                 border_style="magenta",
             )
         )
 
-    message = str(offer.get("messageToContractor", "")).strip()
-    if message:
+    if offer.message_to_contractor.strip():
         console.print(
             Panel(
-                message,
+                offer.message_to_contractor.strip(),
                 title="Client Message",
                 border_style="green",
             )
@@ -480,9 +374,8 @@ def withdraw_offer(offer_id: str, reason: str, message: str, yes: bool) -> None:
         return
 
     try:
-        client.withdraw_offer(offer_id, reason=gql_reason, message=message or None)
-    except Exception as exc:
-        console.print(f"[red]Failed to withdraw offer: {exc}[/red]")
-        raise SystemExit(1)
+        applications_api.withdraw_offer(client, offer_id, gql_reason, message)
+    except applications_api.ApplicationsError as exc:
+        _fail(exc)
 
     console.print("[green]Offer withdrawn successfully.[/green]")

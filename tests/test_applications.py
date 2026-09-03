@@ -1,226 +1,164 @@
-"""Tests for GraphQL-backed applications and offers commands."""
+"""CLI-level tests for the applications and offers command groups.
 
-from unittest.mock import MagicMock, patch
+Payload handling is covered in test_applications_module.py through the
+module's own interface. What is left here is what the commands decide:
+rendering, confirmation prompts, exit codes and empty states.
+"""
+
+from unittest.mock import patch
 
 import pytest
 from click.testing import CliRunner
 
+from tests.fakes import FakeUpworkClient, application_node, connection, offer_node
 from upwork_cli.cli import cli
 from upwork_cli.client import NotAuthenticated
-from upwork_cli.db import init_db
 
 
 @pytest.fixture
 def runner():
-    return CliRunner()
+    # Wide enough that Rich renders table cells in full: two no-wrap
+    # timestamp columns otherwise squeeze the Job column to an ellipsis.
+    return CliRunner(env={"COLUMNS": "200"})
 
 
-def _make_mock_client(authenticated: bool = True) -> MagicMock:
-    """Create a mock Upwork client with GraphQL-shaped responses."""
-    client = MagicMock()
-    client.is_authenticated = authenticated
-    client.get_applications.return_value = {
-        "edges": [
-            {
-                "node": {
-                    "id": "app-001",
-                    "status": {"status": "Accepted"},
-                    "auditDetails": {
-                        "createdDateTime": "2026-03-01T08:00:00Z",
-                        "modifiedDateTime": "2026-03-02T10:15:00Z",
-                    },
-                    "marketplaceJobPosting": {
-                        "id": "~job001",
-                        "title": "Python API Cleanup",
-                        "createdDateTime": "2026-02-28T20:00:00Z",
-                    },
-                }
-            }
-        ]
-    }
-    client.get_application.return_value = {
-        "id": "app-001",
-        "status": {"status": "Accepted"},
-        "proposalCoverLetter": "I can clean this API safely and quickly.",
-        "auditDetails": {
-            "createdDateTime": "2026-03-01T08:00:00Z",
-            "modifiedDateTime": "2026-03-02T10:15:00Z",
-        },
-        "marketplaceJobPosting": {
-            "id": "~job001",
-            "title": "Python API Cleanup",
-            "description": "Refactor an aging FastAPI service.",
-            "engagement": "Hourly: 10+ hrs/week",
-            "durationLabel": "1 to 3 months",
-            "amount": {"amount": 75, "currencyCode": "USD"},
-            "client": {
-                "totalHires": 12,
-                "totalSpent": {"amount": 25000, "currencyCode": "USD"},
-                "verificationStatus": "VERIFIED",
-                "location": {"country": "United States"},
-            },
-        },
-    }
-    client.get_offers_for_application.return_value = [
-        {
-            "id": "offer-001",
-            "title": "Backend Retainer",
-            "state": "PENDING_VENDOR_ACCEPTANCE",
-            "client": {"name": "Acme Corp"},
-            "offerTerms": {
-                "hourlyTerms": {
-                    "rate": {"amount": 85, "currencyCode": "USD"},
-                    "weeklyHoursLimit": 20,
-                }
-            },
-        }
-    ]
-    client.get_offers.return_value = {
-        "edges": [
-            {
-                "node": {
-                    "id": "wrapped-offer-001",
-                    "title": "Backend Retainer",
-                    "state": "Pending",
-                    "type": "Hourly",
-                    "lastUpdatedDateTime": "2026-03-05T18:30:00Z",
-                    "company": {"name": "Acme Corp"},
-                    "offer": {
-                        "id": "offer-001",
-                        "state": "PENDING_VENDOR_ACCEPTANCE",
-                        "vendorProposal": {"id": "app-001"},
-                    },
-                }
-            }
-        ]
-    }
-    client.get_offer.return_value = {
-        "id": "offer-001",
-        "title": "Backend Retainer",
-        "description": "Join the team for platform stabilization.",
-        "type": "Hourly",
-        "state": "PENDING_VENDOR_ACCEPTANCE",
-        "closeJobPostingOnAccept": True,
-        "messageToContractor": "We want to move quickly.",
-        "client": {"name": "Acme Corp"},
-        "job": {"id": "~job001", "title": "Python API Cleanup"},
-        "vendorProposal": {
-            "id": "app-001",
-            "status": {"status": "Accepted"},
-        },
-        "offerTerms": {
-            "expectedStartDate": "2026-03-10",
-            "expectedEndDate": "2026-06-10",
-            "hourlyTerms": {
-                "rate": {"amount": 85, "currencyCode": "USD"},
-                "weeklyHoursLimit": 20,
-                "manualTimeAllowed": True,
-            },
-        },
-    }
-    client.withdraw_offer.return_value = True
-    return client
+def _run(runner, args, client=None, input=None, **fake_kwargs):
+    """Invoke the CLI with a fake client behind the single construction site."""
+    client = client if client is not None else FakeUpworkClient(**fake_kwargs)
+    with patch("upwork_cli.commands.applications.get_client", return_value=client):
+        return runner.invoke(cli, args, input=input)
+
+
+class TestAuthentication:
+    def test_unauthenticated_reports_and_exits(self, runner, isolated_config):
+        with patch(
+            "upwork_cli.commands.applications.get_client",
+            side_effect=NotAuthenticated("nope"),
+        ):
+            result = runner.invoke(cli, ["applications", "list"])
+        assert result.exit_code == 1
+        assert "Not authenticated" in result.output
 
 
 class TestApplicationsCommands:
-    @patch("upwork_cli.commands.applications.get_client")
-    def test_list_requires_auth(self, MockClient, runner, isolated_config):
-        init_db()
-        MockClient.side_effect = NotAuthenticated("not authenticated")
-        result = runner.invoke(cli, ["applications", "list"])
-        assert result.exit_code != 0
-        assert "Not authenticated" in result.output
-
-    @patch("upwork_cli.commands.applications.get_client")
-    def test_list_happy_path(self, MockClient, runner, isolated_config):
-        init_db()
-        client = _make_mock_client()
-        MockClient.return_value = client
-        result = runner.invoke(cli, ["applications", "list", "--limit", "5"])
-        assert result.exit_code == 0
-        assert "Applications" in result.output
-        assert "app-001" in result.output
-        client.get_applications.assert_called_with(
-            {
-                "status": "Accepted",
-                "limit": 5,
-                "sort_field": "ModifiedDateTime",
-                "sort_order": "DESC",
-            }
+    def test_list_renders_a_table(self, runner, isolated_config):
+        result = _run(
+            runner,
+            ["applications", "list"],
+            applications=connection(
+                application_node("app-1", job_title="Build an API", status="Submitted")
+            ),
         )
-
-    @patch("upwork_cli.commands.applications.get_client")
-    def test_show_happy_path(self, MockClient, runner, isolated_config):
-        init_db()
-        MockClient.return_value = _make_mock_client()
-        result = runner.invoke(cli, ["applications", "show", "app-001"])
         assert result.exit_code == 0
-        assert "Application Details" in result.output
-        assert "Cover Letter" in result.output
-        assert "Related Offers" in result.output
+        assert "app-1" in result.output
+        assert "Build an API" in result.output
+        assert "Submitted" in result.output
 
-    @patch("upwork_cli.commands.applications.get_client")
-    def test_default_group_invokes_list(self, MockClient, runner, isolated_config):
-        init_db()
-        MockClient.return_value = _make_mock_client()
-        result = runner.invoke(cli, ["applications"])
+    def test_list_empty_state(self, runner, isolated_config):
+        result = _run(runner, ["applications", "list"], applications=connection())
         assert result.exit_code == 0
-        assert "Applications" in result.output
+        assert "No applications found" in result.output
+
+    def test_list_api_failure(self, runner, isolated_config):
+        result = _run(
+            runner, ["applications", "list"], applications=RuntimeError("boom")
+        )
+        assert result.exit_code == 1
+        assert "fetch applications" in result.output
+
+    def test_default_group_invokes_list(self, runner, isolated_config):
+        result = _run(
+            runner,
+            ["applications"],
+            applications=connection(application_node("app-1")),
+        )
+        assert result.exit_code == 0
+        assert "app-1" in result.output
+
+    def test_show_renders_details_and_cover_letter(self, runner, isolated_config):
+        result = _run(
+            runner,
+            ["applications", "show", "app-1"],
+            application=application_node(
+                "app-1", job_title="Build an API", cover_letter="Pick me."
+            ),
+            offers_for_application=[offer_node("offer-1")],
+        )
+        assert result.exit_code == 0
+        assert "Build an API" in result.output
+        assert "Pick me." in result.output
+        assert "$3,000.00 USD" in result.output
+        assert "offer-1" in result.output
+
+    def test_show_missing_application(self, runner, isolated_config):
+        result = _run(runner, ["applications", "show", "nope"], application={})
+        assert result.exit_code == 1
+        assert "was not found" in result.output
 
 
 class TestOffersCommands:
-    @patch("upwork_cli.commands.applications.get_client")
-    def test_list_happy_path(self, MockClient, runner, isolated_config):
-        init_db()
-        client = _make_mock_client()
-        MockClient.return_value = client
-        result = runner.invoke(cli, ["offers", "list", "--state", "pending"])
-        assert result.exit_code == 0
-        assert "Offers" in result.output
-        assert "offer-001" in result.output
-        client.get_offers.assert_called_with({"limit": 20, "state": "Pending"})
-
-    @patch("upwork_cli.commands.applications.get_client")
-    def test_show_happy_path(self, MockClient, runner, isolated_config):
-        init_db()
-        MockClient.return_value = _make_mock_client()
-        result = runner.invoke(cli, ["offers", "show", "offer-001"])
-        assert result.exit_code == 0
-        assert "Backend Retainer" in result.output
-        assert "Client Message" in result.output
-
-    @patch("upwork_cli.commands.applications.get_client")
-    def test_withdraw_cancelled(self, MockClient, runner, isolated_config):
-        init_db()
-        client = _make_mock_client()
-        MockClient.return_value = client
-        result = runner.invoke(cli, ["offers", "withdraw", "offer-001"], input="n\n")
-        assert result.exit_code == 0
-        assert "Offer not withdrawn" in result.output
-        client.withdraw_offer.assert_not_called()
-
-    @patch("upwork_cli.commands.applications.get_client")
-    def test_withdraw_with_yes(self, MockClient, runner, isolated_config):
-        init_db()
-        client = _make_mock_client()
-        MockClient.return_value = client
-        result = runner.invoke(
-            cli,
-            [
-                "offers",
-                "withdraw",
-                "offer-001",
-                "--reason",
-                "no-response",
-                "--message",
-                "Closing this out on my side.",
-                "--yes",
-            ],
+    def test_list_renders_a_table(self, runner, isolated_config):
+        result = _run(
+            runner,
+            ["offers", "list"],
+            offers=connection(
+                offer_node("offer-1", title="Backend work", client_name="Acme Corp")
+            ),
         )
         assert result.exit_code == 0
+        assert "offer-1" in result.output
+        assert "Acme Corp" in result.output
+
+    def test_list_empty_state(self, runner, isolated_config):
+        result = _run(runner, ["offers", "list"], offers=connection())
+        assert result.exit_code == 0
+        assert "No offers found" in result.output
+
+    def test_show_renders_fixed_price_terms(self, runner, isolated_config):
+        result = _run(
+            runner, ["offers", "show", "offer-1"], offer=offer_node(budget="5000")
+        )
+        assert result.exit_code == 0
+        assert "$5,000.00 USD" in result.output
+
+    def test_show_renders_hourly_terms_with_a_cap(self, runner, isolated_config):
+        result = _run(
+            runner,
+            ["offers", "show", "offer-1"],
+            offer=offer_node(budget=None, hourly_rate="85", weekly_limit=30),
+        )
+        assert "$85.00 USD / 30 hrs" in result.output
+
+    def test_show_missing_offer(self, runner, isolated_config):
+        result = _run(runner, ["offers", "show", "nope"], offer={})
+        assert result.exit_code == 1
+        assert "was not found" in result.output
+
+    def test_withdraw_cancelled(self, runner, isolated_config):
+        client = FakeUpworkClient()
+        result = _run(
+            runner, ["offers", "withdraw", "offer-1"], client=client, input="n\n"
+        )
+        assert result.exit_code == 0
+        assert client.withdrawn == []
+        assert "not withdrawn" in result.output
+
+    def test_withdraw_with_yes_skips_the_prompt(self, runner, isolated_config):
+        client = FakeUpworkClient()
+        result = _run(
+            runner,
+            ["offers", "withdraw", "offer-1", "--yes", "--reason", "other"],
+            client=client,
+        )
+        assert result.exit_code == 0
+        assert client.withdrawn == [("offer-1", "Other", None)]
         assert "withdrawn successfully" in result.output
-        client.withdraw_offer.assert_called_with(
-            "offer-001",
-            reason="NoResponse",
-            message="Closing this out on my side.",
+
+    def test_withdraw_passes_the_message_through(self, runner, isolated_config):
+        client = FakeUpworkClient()
+        _run(
+            runner,
+            ["offers", "withdraw", "offer-1", "--yes", "--message", "changed my mind"],
+            client=client,
         )
+        assert client.withdrawn[0][2] == "changed my mind"
