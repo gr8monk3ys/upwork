@@ -2,10 +2,10 @@
 
 from unittest.mock import patch
 
+from tests.conftest import _make_job_dict
 from upwork_cli.commands.jobs import _score_alert_jobs
 from upwork_cli.db import get_connection, init_db, upsert_job
 from upwork_cli.models import JobPosting
-from tests.conftest import _make_job_dict
 
 
 def _posting(job_id: str, title: str) -> JobPosting:

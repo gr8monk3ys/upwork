@@ -25,11 +25,11 @@ def register_commands():
     """Register all command groups."""
     from upwork_cli.commands.applications import applications, offers
     from upwork_cli.commands.config import config
+    from upwork_cli.commands.earnings import contracts, earnings
     from upwork_cli.commands.jobs import jobs
-    from upwork_cli.commands.propose import propose
-    from upwork_cli.commands.earnings import earnings, contracts
     from upwork_cli.commands.messages import messages
     from upwork_cli.commands.pipeline import pipeline
+    from upwork_cli.commands.propose import propose
 
     cli.add_command(config)
     cli.add_command(jobs)

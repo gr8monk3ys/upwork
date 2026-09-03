@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "upwork-cli"
 version = "0.1.0"
 description = "CLI toolkit for Upwork freelancer management"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "python-upwork-oauth2>=3.2.0",
     "click>=8.1",
@@ -29,3 +29,14 @@ upwork = "upwork_cli.cli:cli"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.ruff]
+# Pinned in .github/workflows/ci.yml and .pre-commit-config.yaml; keep in sync.
+# ruff 0.16 enables ~400 rules by default (up from 59). We accept the default
+# set and carve out only what the CLI layer needs.
+line-length = 88
+
+[tool.ruff.lint.per-file-ignores]
+# CLI command handlers catch Exception at the top of each command so a failed
+# API call prints a red line and exits non-zero instead of a traceback.
+"src/upwork_cli/commands/*.py" = ["BLE001"]

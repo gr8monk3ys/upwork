@@ -1,6 +1,6 @@
 """Tests for data models in upwork_cli.models."""
 
-from upwork_cli.models import JobPosting, Contract, Message
+from upwork_cli.models import Contract, JobPosting, Message
 
 
 class TestJobPostingFromGraphQL:

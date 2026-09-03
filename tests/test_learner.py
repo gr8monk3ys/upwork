@@ -4,8 +4,8 @@ from unittest.mock import patch
 
 import pytest
 
-from upwork_cli.ai.learner import extract_winning_patterns
 from tests.conftest import mock_anthropic_response
+from upwork_cli.ai.learner import extract_winning_patterns
 
 
 class TestExtractWinningPatterns:

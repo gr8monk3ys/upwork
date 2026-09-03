@@ -4,8 +4,8 @@ from unittest.mock import patch
 
 import pytest
 
-from upwork_cli.ai.interview_prep import generate_interview_prep
 from tests.conftest import mock_anthropic_response
+from upwork_cli.ai.interview_prep import generate_interview_prep
 
 
 class TestInterviewPrep:

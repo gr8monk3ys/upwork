@@ -4,7 +4,7 @@ import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import keyring
 import yaml
@@ -170,7 +170,7 @@ def save_auth(token: AuthToken) -> None:
     AUTH_FILE.chmod(0o600)
 
 
-def load_auth() -> Optional[AuthToken]:
+def load_auth() -> AuthToken | None:
     if not AUTH_FILE.exists():
         return None
     try:
@@ -182,9 +182,9 @@ def load_auth() -> Optional[AuthToken]:
 
 def save_settings(
     settings: Settings,
-    client_secret: Optional[str] = None,
-    anthropic_api_key: Optional[str] = None,
-    discord_webhook_url: Optional[str] = None,
+    client_secret: str | None = None,
+    anthropic_api_key: str | None = None,
+    discord_webhook_url: str | None = None,
 ) -> None:
     """Save settings to YAML and secrets to keyring."""
     ensure_config_dir()

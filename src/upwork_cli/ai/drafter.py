@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 from upwork_cli.ai.utils import complete
 
 VALID_TONES = ("professional", "casual", "technical", "enthusiastic")
@@ -70,7 +68,7 @@ def draft_proposal(
     tone: str = "professional",
     length: str = "medium",
     style_guide: str = "",
-    model: Optional[str] = None,
+    model: str | None = None,
 ) -> str:
     """Generate a tailored Upwork proposal for a specific job.
 
@@ -118,7 +116,7 @@ def refine_proposal(
     current_draft: str,
     feedback: str,
     api_key: str,
-    model: Optional[str] = None,
+    model: str | None = None,
 ) -> str:
     """Refine an existing proposal based on user feedback.
 

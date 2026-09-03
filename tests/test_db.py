@@ -5,20 +5,20 @@ import sqlite3
 
 import pytest
 
-from upwork_cli.db import (
-    init_db,
-    upsert_job,
-    save_score,
-    get_jobs_with_scores,
-    save_proposal,
-    get_proposals,
-    save_bookmark,
-    remove_bookmark,
-    get_bookmarks,
-    mark_seen,
-    is_seen,
-)
 from tests.conftest import _make_job_dict
+from upwork_cli.db import (
+    get_bookmarks,
+    get_jobs_with_scores,
+    get_proposals,
+    init_db,
+    is_seen,
+    mark_seen,
+    remove_bookmark,
+    save_bookmark,
+    save_proposal,
+    save_score,
+    upsert_job,
+)
 
 
 class TestInitDb:

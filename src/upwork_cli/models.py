@@ -1,7 +1,7 @@
 """Data models for Upwork API responses."""
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 
 @dataclass
@@ -10,16 +10,16 @@ class JobPosting:
     title: str
     description: str = ""
     skills: list[str] = field(default_factory=list)
-    budget_amount: Optional[float] = None
+    budget_amount: float | None = None
     budget_currency: str = "USD"
     duration: str = ""
     duration_label: str = ""
     engagement: str = ""
     created_at: str = ""
     client_country: str = ""
-    client_total_spent: Optional[float] = None
-    client_total_hires: Optional[int] = None
-    client_feedback: Optional[float] = None
+    client_total_spent: float | None = None
+    client_total_hires: int | None = None
+    client_feedback: float | None = None
     client_verified: bool = False
     category: str = ""
     subcategory: str = ""
@@ -158,9 +158,9 @@ class Contract:
     status: str = ""
     created_at: str = ""
     client_name: str = ""
-    hourly_rate: Optional[float] = None
-    total_hours: Optional[float] = None
-    total_charge: Optional[float] = None
+    hourly_rate: float | None = None
+    total_hours: float | None = None
+    total_charge: float | None = None
 
     @classmethod
     def from_api(cls, data: dict[str, Any]) -> "Contract":

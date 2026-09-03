@@ -2,7 +2,6 @@
 
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Optional
 
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
@@ -44,7 +43,7 @@ def score_job(
     job_summary: str,
     profile_summary: str,
     api_key: str,
-    model: Optional[str] = None,
+    model: str | None = None,
 ) -> tuple[int, str]:
     """Score a single job posting against a freelancer profile.
 
@@ -81,7 +80,7 @@ def score_jobs_batch(
     jobs: list[dict],
     profile_summary: str,
     api_key: str,
-    model: Optional[str] = None,
+    model: str | None = None,
     max_workers: int = 4,
 ) -> list[dict]:
     """Score multiple job postings against a freelancer profile.

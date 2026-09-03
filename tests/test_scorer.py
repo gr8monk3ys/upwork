@@ -4,9 +4,9 @@ from unittest.mock import patch
 
 import pytest
 
+from tests.conftest import mock_anthropic_response
 from upwork_cli.ai.scorer import score_job, score_jobs_batch
 from upwork_cli.ai.utils import AIError
-from tests.conftest import mock_anthropic_response
 
 
 class TestScoreJob:
@@ -101,7 +101,7 @@ class TestScoreJobsBatch:
         def side_effect(**kwargs):
             prompt = kwargs["messages"][0]["content"]
             if "about Job B" in prompt:
-                raise Exception("API down")
+                raise RuntimeError("API down")
             return mock_anthropic_response('{"score": 7, "reasoning": "Fine."}')
 
         with patch("upwork_cli.ai.utils.Anthropic") as MockClient:

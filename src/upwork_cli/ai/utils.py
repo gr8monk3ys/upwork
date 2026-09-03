@@ -1,7 +1,7 @@
 """Shared utilities for AI modules."""
 
 import re
-from typing import Any, Optional
+from typing import Any
 
 import anthropic
 from anthropic import Anthropic
@@ -40,8 +40,8 @@ def complete(
     prompt: str,
     api_key: str,
     *,
-    model: Optional[str] = None,
-    system: Optional[str] = None,
+    model: str | None = None,
+    system: str | None = None,
     max_tokens: int = 2048,
 ) -> str:
     """Run a single-turn completion and return the response text.

@@ -2,17 +2,17 @@
 
 from upwork_cli.config import (
     AuthToken,
-    Settings,
     Profile,
-    save_auth,
-    load_auth,
-    save_settings,
-    load_settings,
-    save_profile,
-    load_profile,
+    Settings,
     _get_secret,
     _get_secret_source,
     _set_secret,
+    load_auth,
+    load_profile,
+    load_settings,
+    save_auth,
+    save_profile,
+    save_settings,
 )
 
 

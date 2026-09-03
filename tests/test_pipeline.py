@@ -5,22 +5,22 @@ from datetime import datetime, timezone
 import pytest
 from click.testing import CliRunner
 
+from tests.conftest import _make_job_dict
 from upwork_cli.cli import cli
 from upwork_cli.commands.pipeline import _filter_recent_history
 from upwork_cli.db import (
-    init_db,
-    upsert_job,
-    set_pipeline_stage,
-    set_pipeline_stage_if_not_exists,
+    PIPELINE_STAGES,
+    get_pipeline_history,
     get_pipeline_jobs,
     get_pipeline_stats,
-    get_pipeline_history,
-    mark_proposal_outcome,
     get_winning_proposals,
+    init_db,
+    mark_proposal_outcome,
     save_proposal,
-    PIPELINE_STAGES,
+    set_pipeline_stage,
+    set_pipeline_stage_if_not_exists,
+    upsert_job,
 )
-from tests.conftest import _make_job_dict
 
 
 @pytest.fixture

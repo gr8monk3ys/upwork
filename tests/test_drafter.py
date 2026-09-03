@@ -1,13 +1,13 @@
 """Tests for the AI proposal drafting module upwork_cli.ai.drafter."""
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
-import pytest
 import anthropic
+import pytest
 
+from tests.conftest import mock_anthropic_response
 from upwork_cli.ai.drafter import draft_proposal, refine_proposal
 from upwork_cli.ai.utils import AIError
-from tests.conftest import mock_anthropic_response
 
 
 class TestDraftProposal:

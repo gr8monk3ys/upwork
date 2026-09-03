@@ -6,25 +6,24 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 
 import click
-
 from rich.console import Console
 from rich.table import Table
 
+from upwork_cli.ai.scorer import score_jobs_batch
 from upwork_cli.client import UpworkClient
-from upwork_cli.config import load_settings, load_profile, save_settings
+from upwork_cli.config import load_profile, load_settings, save_settings
 from upwork_cli.db import (
-    init_db,
-    upsert_job,
-    save_score,
-    save_bookmark,
     get_bookmarks,
-    mark_seen,
-    is_seen,
     get_jobs_with_scores,
+    init_db,
+    is_seen,
+    mark_seen,
+    save_bookmark,
+    save_score,
     set_pipeline_stage_if_not_exists,
+    upsert_job,
 )
 from upwork_cli.models import JobPosting
-from upwork_cli.ai.scorer import score_jobs_batch
 
 console = Console()
 
@@ -344,7 +343,6 @@ def _run_search_cycle(
 @click.group()
 def jobs():
     """Job search, scoring, watching, and bookmarking commands."""
-    pass
 
 
 @jobs.command()

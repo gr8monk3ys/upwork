@@ -102,7 +102,10 @@ def summary() -> None:
     this_month: float = 0.0
     this_week: float = 0.0
 
-    now = datetime.now()
+    # Naive local time on purpose: Upwork's earnings rows carry bare dates
+    # with no zone (parsed naive below), and month/week buckets should follow
+    # the user's calendar. Mixing aware and naive datetimes would raise.
+    now = datetime.now()  # noqa: DTZ005
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     week_start = now - timedelta(days=now.weekday())
     week_start = week_start.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -129,7 +132,7 @@ def summary() -> None:
         row_date = None
         for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%m/%d/%Y", "%Y%m%d"):
             try:
-                row_date = datetime.strptime(date_str[:10], fmt)
+                row_date = datetime.strptime(date_str[:10], fmt)  # noqa: DTZ007
                 break
             except (ValueError, TypeError):
                 continue
