@@ -12,11 +12,12 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
 
+from upwork_cli import jobs as jobs_api
 from upwork_cli import output
 from upwork_cli.ai.drafter import draft_proposal, refine_proposal
 from upwork_cli.ai.utils import require_api_key
-from upwork_cli.client import UpworkClient
-from upwork_cli.config import CONFIG_DIR, load_profile, load_settings
+from upwork_cli.client import NotAuthenticated, get_client
+from upwork_cli.config import CONFIG_DIR, load_profile
 from upwork_cli.db import (
     get_job,
     get_latest_proposal,
@@ -27,7 +28,6 @@ from upwork_cli.db import (
     mark_proposal_outcome,
     save_proposal,
     set_pipeline_stage,
-    upsert_job,
 )
 from upwork_cli.models import JobPosting
 from upwork_cli.output import console
@@ -97,7 +97,7 @@ def _job_from_description(
         job_id = f"manual-{digest}"
 
     posting = JobPosting(id=job_id, title=title, description=text)
-    upsert_job(posting)
+    jobs_api.cache([posting])
     return posting
 
 
@@ -177,7 +177,6 @@ def generate(
         raise click.UsageError("Provide a JOB_ID or --from-file <path>.")
 
     require_api_key()
-    settings = load_settings()
     profile = load_profile()
 
     if not profile.title:
@@ -199,13 +198,10 @@ def generate(
             f"[dim]Job {job_id} not in local cache. Fetching from API...[/dim]"
         )
         try:
-            client = UpworkClient(settings=settings)
-            job_data = client.get_job_detail(job_id)
-            # Persist to DB for future use
-            posting = JobPosting.from_rest(job_data)
-            upsert_job(posting)
-            job = get_job(job_id)
-        except Exception as exc:
+            job = jobs_api.get_detail(get_client(), job_id)
+            if job is not None:
+                jobs_api.cache([job])
+        except (NotAuthenticated, jobs_api.JobsError) as exc:
             console.print(
                 "[dim]Tip: save the job posting text to a file and run "
                 "[bold]propose generate --from-file <path>[/bold] — "

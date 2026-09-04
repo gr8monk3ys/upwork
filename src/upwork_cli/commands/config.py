@@ -19,14 +19,16 @@ from upwork_cli.config import (
     SECRET_ENV_MAP,
     SETTINGS_FILE,
     Profile,
-    _get_secret_source,
-    _set_secret,
     ensure_config_dir,
     load_auth,
     load_profile,
     load_settings,
     save_profile,
     save_settings,
+    secret_source,
+)
+from upwork_cli.config import (
+    clear_secret as clear_stored_secret,
 )
 from upwork_cli.db import init_db
 from upwork_cli.output import console
@@ -51,7 +53,7 @@ SECRET_CLI_NAMES = {
 
 def _describe_secret_source(secret_key: str) -> str:
     """Return a human-readable description of the active secret source."""
-    source = _get_secret_source(secret_key)
+    source = secret_source(secret_key)
     if source.startswith("env:"):
         env_name = source.split(":", 1)[1]
         return f"environment variable ({env_name})"
@@ -288,7 +290,7 @@ def secret_status() -> None:
     table.add_column("Source", style="magenta")
 
     for secret_key, label in SECRET_LABELS.items():
-        source = _get_secret_source(secret_key)
+        source = secret_source(secret_key)
         env_name = SECRET_ENV_MAP.get(secret_key, "")
         if source.startswith("env:"):
             status = "[green]Set[/green]"
@@ -313,14 +315,14 @@ def clear_secret(name: str, yes: bool) -> None:
     """Clear a single keyring-backed secret."""
     secret_key = SECRET_CLI_NAMES[name.lower()]
     label = SECRET_LABELS[secret_key]
-    source = _get_secret_source(secret_key)
+    source = secret_source(secret_key)
     env_name = SECRET_ENV_MAP.get(secret_key, "")
 
     if not yes and not click.confirm(f"Clear {label} from the system keychain?"):
         output.warn("Aborted.")
         return
 
-    _set_secret(secret_key, "")
+    clear_stored_secret(secret_key)
 
     if source.startswith("env:"):
         output.warn(
@@ -408,7 +410,7 @@ def reset():
 
     # Clear secrets from keychain
     for key in ("client_secret", "anthropic_api_key", "discord_webhook_url"):
-        _set_secret(key, "")
+        clear_stored_secret(key)
 
     if deleted:
         console.print(f"[green]Deleted: {', '.join(deleted)}[/green]")

@@ -5,14 +5,14 @@ from upwork_cli.config import (
     Profile,
     Settings,
     _get_secret,
-    _get_secret_source,
-    _set_secret,
     load_auth,
     load_profile,
     load_settings,
     save_auth,
     save_profile,
     save_settings,
+    secret_source,
+    set_secret,
 )
 
 
@@ -78,14 +78,14 @@ class TestSettings:
     def test_save_settings_keeps_existing_secret_when_none(
         self, isolated_config, mock_keyring
     ):
-        _set_secret("anthropic_api_key", "sk-existing")
+        set_secret("anthropic_api_key", "sk-existing")
         save_settings(Settings(client_id="test-id"), anthropic_api_key=None)
         assert _get_secret("anthropic_api_key") == "sk-existing"
 
     def test_save_settings_clears_secret_with_empty_string(
         self, isolated_config, mock_keyring
     ):
-        _set_secret("anthropic_api_key", "sk-existing")
+        set_secret("anthropic_api_key", "sk-existing")
         save_settings(Settings(client_id="test-id"), anthropic_api_key="")
         assert _get_secret("anthropic_api_key") == ""
 
@@ -117,18 +117,18 @@ class TestProfile:
 
 class TestKeyringSecretIsolation:
     def test_set_and_get_secret(self, mock_keyring):
-        _set_secret("anthropic_api_key", "sk-test-123")
+        set_secret("anthropic_api_key", "sk-test-123")
         assert _get_secret("anthropic_api_key") == "sk-test-123"
 
     def test_env_var_precedence(self, monkeypatch, mock_keyring):
-        _set_secret("anthropic_api_key", "from-keyring")
+        set_secret("anthropic_api_key", "from-keyring")
         monkeypatch.setenv("ANTHROPIC_API_KEY", "from-env")
         assert _get_secret("anthropic_api_key") == "from-env"
 
     def test_get_secret_source_keyring(self, mock_keyring):
-        _set_secret("anthropic_api_key", "from-keyring")
-        assert _get_secret_source("anthropic_api_key") == "keyring"
+        set_secret("anthropic_api_key", "from-keyring")
+        assert secret_source("anthropic_api_key") == "keyring"
 
     def test_get_secret_source_env(self, monkeypatch, mock_keyring):
         monkeypatch.setenv("ANTHROPIC_API_KEY", "from-env")
-        assert _get_secret_source("anthropic_api_key") == "env:ANTHROPIC_API_KEY"
+        assert secret_source("anthropic_api_key") == "env:ANTHROPIC_API_KEY"
