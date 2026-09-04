@@ -105,3 +105,39 @@ One funded step of a fixed-price Contract. Only a Contract's own detail
 payload can say what its Milestones are, so they are read with the Contract
 and never inferred from a listing.
 _Avoid_: phase, deliverable
+
+**Bookmark**:
+A Job the freelancer set aside by hand, with their note on why. Local, and
+independent of the Pipeline: bookmarking a Job says "come back to this",
+moving it through Stages says what became of it.
+_Avoid_: favourite, star, saved job (which is a Saved Search term)
+
+### Messaging
+
+**Room**:
+One Upwork conversation thread, owned by Upwork. Identified per company, not
+globally, so a Room id is only meaningful alongside the company it belongs to.
+_Avoid_: thread, channel, chat
+
+**Message**:
+One entry in a Room. Whether it is the freelancer's own cannot be answered by
+the Message alone -- that needs a viewer, which is why a Conversation exists.
+_Avoid_: story (Upwork's own word for it), post
+
+**Conversation**:
+A Room's Messages together with the id of whoever is reading them. The pairing
+that can answer "is this mine?", which neither part can answer on its own.
+_Avoid_: thread, history
+
+### Money and movement
+
+**Earning**:
+One row of Upwork's finance report. Owned by Upwork and never written here.
+The report names its own columns, which differ between accounts, so the
+column labels travel with the rows rather than being assumed.
+_Avoid_: payment, transaction, income
+
+**Transition**:
+One recorded move of a Job between Stages, kept forever. The first Transition
+for a Job has no `from_stage`, because it came from nowhere.
+_Avoid_: change, event, history entry
