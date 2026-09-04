@@ -22,13 +22,13 @@ generating future proposals (use imperative voice).
 
 
 def extract_winning_patterns(
-    proposals: list[dict], api_key: str, model: str | None = None
+    proposals: list[dict], api_key: str | None = None, model: str | None = None
 ) -> str:
     """Analyze winning proposals and extract a style guide.
 
     Args:
         proposals: List of proposal dicts with 'content', 'job_title', 'tone' keys.
-        api_key: Anthropic API key.
+        api_key: Anthropic API key; resolved from settings when omitted.
         model: Claude model ID; defaults to the configured/default model.
 
     Returns:

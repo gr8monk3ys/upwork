@@ -153,14 +153,15 @@ class TestJobsScore:
         assert "No unscored jobs found" in result.output
         assert result.exit_code == 0
 
-    def test_missing_api_key_reports_and_exits_zero(
+    def test_missing_api_key_reports_and_exits_nonzero(
         self, runner, isolated_config, profile
     ):
+        """Was exit 0; a missing key is a failure like any other now."""
         init_db()
         _seed_job()
         result = runner.invoke(cli, ["jobs", "score"])
         assert "Anthropic API key not configured" in result.output
-        assert result.exit_code == 0
+        assert result.exit_code == 1
 
     def test_empty_profile_reports_and_exits_zero(
         self, runner, isolated_config, api_key

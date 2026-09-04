@@ -11,7 +11,8 @@ from typing import Any
 import keyring
 import yaml
 
-from upwork_cli.ai.utils import DEFAULT_MODEL
+#: Claude model used when settings do not name one.
+DEFAULT_MODEL = "claude-opus-5"
 
 CONFIG_DIR = Path.home() / ".config" / "upwork-cli"
 AUTH_FILE = CONFIG_DIR / "auth.json"

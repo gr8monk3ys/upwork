@@ -14,6 +14,7 @@ from rich.table import Table
 
 from upwork_cli import output
 from upwork_cli.ai.drafter import draft_proposal, refine_proposal
+from upwork_cli.ai.utils import require_api_key
 from upwork_cli.client import UpworkClient
 from upwork_cli.config import CONFIG_DIR, load_profile, load_settings
 from upwork_cli.db import (
@@ -175,15 +176,9 @@ def generate(
     if job_id is None and from_file is None:
         raise click.UsageError("Provide a JOB_ID or --from-file <path>.")
 
+    require_api_key()
     settings = load_settings()
     profile = load_profile()
-
-    if not settings.anthropic_api_key:
-        console.print(
-            "[red]Anthropic API key not configured.[/red] "
-            "Run [bold]upwork config setup[/bold] first."
-        )
-        raise SystemExit(1)
 
     if not profile.title:
         output.warn(
@@ -258,8 +253,6 @@ def generate(
                     feedback=job.client_feedback,
                     country=job.client_country,
                     verified=job.client_verified,
-                    api_key=settings.anthropic_api_key,
-                    model=settings.ai_model,
                 )
             except RuntimeError as exc:
                 console.print(
@@ -292,11 +285,9 @@ def generate(
             content = draft_proposal(
                 job_summary=job_summary,
                 profile_summary=profile_summary,
-                api_key=settings.anthropic_api_key,
                 tone=tone,
                 length=length,
                 style_guide=style_guide,
-                model=settings.ai_model,
             )
         except RuntimeError as exc:
             console.print(f"[red]Proposal generation failed:[/red] {exc}")
@@ -354,14 +345,7 @@ def generate(
 def refine(proposal_id: int | None, feedback: str | None):
     """Refine PROPOSAL_ID (default: the most recent proposal) based on feedback."""
 
-    settings = load_settings()
-
-    if not settings.anthropic_api_key:
-        console.print(
-            "[red]Anthropic API key not configured.[/red] "
-            "Run [bold]upwork config setup[/bold] first."
-        )
-        raise SystemExit(1)
+    require_api_key()
 
     if proposal_id is not None:
         proposal = get_proposal(proposal_id)
@@ -390,8 +374,6 @@ def refine(proposal_id: int | None, feedback: str | None):
             refined_content = refine_proposal(
                 current_draft=original_content,
                 feedback=feedback,
-                api_key=settings.anthropic_api_key,
-                model=settings.ai_model,
             )
         except RuntimeError as exc:
             console.print(f"[red]Refinement failed:[/red] {exc}")
@@ -526,12 +508,8 @@ def show(proposal_id: int, copy_to_clip: bool):
 @click.argument("job_id")
 def prep(job_id: str):
     """Generate interview preparation notes for JOB_ID."""
-    settings = load_settings()
+    require_api_key()
     profile = load_profile()
-
-    if not settings.anthropic_api_key:
-        console.print("[red]Anthropic API key not configured.[/red]")
-        raise SystemExit(1)
 
     job = get_job(job_id)
     if job is None:
@@ -548,8 +526,6 @@ def prep(job_id: str):
             prep_text = generate_interview_prep(
                 job_summary=job_summary,
                 profile_summary=profile_summary,
-                api_key=settings.anthropic_api_key,
-                model=settings.ai_model,
             )
         except RuntimeError as exc:
             console.print(f"[red]{exc}[/red]")
@@ -601,11 +577,7 @@ def mark(proposal_id: int, outcome: str):
 @propose.command()
 def learn():
     """Extract winning patterns from past proposals into a style guide."""
-    settings = load_settings()
-
-    if not settings.anthropic_api_key:
-        console.print("[red]Anthropic API key not configured.[/red]")
-        raise SystemExit(1)
+    require_api_key()
 
     winners = get_winning_proposals()
     if not winners:
@@ -619,9 +591,7 @@ def learn():
 
     with console.status("[bold green]Analyzing winning proposals..."):
         try:
-            style_guide = extract_winning_patterns(
-                winners, settings.anthropic_api_key, model=settings.ai_model
-            )
+            style_guide = extract_winning_patterns(winners)
         except RuntimeError as exc:
             console.print(f"[red]{exc}[/red]")
             raise SystemExit(1)

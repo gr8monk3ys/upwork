@@ -10,6 +10,7 @@ from rich.table import Table
 
 from upwork_cli import jobs as jobs_api
 from upwork_cli import output
+from upwork_cli.ai.utils import require_api_key
 from upwork_cli.client import NotAuthenticated, UpworkClient, get_client
 from upwork_cli.config import load_profile, load_settings, save_settings
 from upwork_cli.db import (
@@ -280,8 +281,6 @@ def _run_search_cycle(
         min_score=min_score,
         has_scoring=has_scoring,
         profile_summary=profile_summary,
-        api_key=settings.anthropic_api_key,
-        model=settings.ai_model,
     )
     _notify_hot_jobs(hot_jobs, notify, settings.discord_webhook_url)
 
@@ -582,14 +581,8 @@ def watch_saved_searches(
 def score(ctx):
     """AI-score the most recent search results."""
     init_db()
-    settings = load_settings()
+    require_api_key()
     profile = load_profile()
-
-    if not settings.anthropic_api_key:
-        console.print(
-            "[red]Anthropic API key not configured. Run 'upwork config setup' to set it.[/red]"
-        )
-        return
 
     if not profile.title and not profile.skills:
         output.warn(
@@ -610,8 +603,6 @@ def score(ctx):
     results = score_jobs(
         unscored,
         profile.summary(),
-        settings.anthropic_api_key,
-        model=settings.ai_model,
     )
 
     table = Table(title="Job Scores", show_lines=True)
