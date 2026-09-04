@@ -11,11 +11,12 @@ import pytest
 from click.testing import CliRunner
 
 from tests.fakes import FakeCompleter, FakeUpworkClient, job_node
+from upwork_cli import pipeline as pipeline_api
 from upwork_cli import proposals as proposals_api
 from upwork_cli.ai.utils import AIError
 from upwork_cli.cli import cli
 from upwork_cli.config import Profile, save_profile
-from upwork_cli.db import init_db, upsert_job
+from upwork_cli.db import get_proposals, init_db, upsert_job
 from upwork_cli.models import JobPosting
 
 RESEARCH_JSON = json.dumps(
@@ -156,3 +157,174 @@ class TestLearn:
         result = runner.invoke(cli, ["propose", "learn"])
         assert fake.calls == []
         assert "won" in result.output.lower() or "no " in result.output.lower()
+
+
+class TestRecord:
+    """Upwork's terms forbid submitting through the API, so every Proposal is
+    sent by hand and many are edited on the way. Without this command only AI
+    drafts could be stored -- hiding exactly the Proposals `propose learn`
+    most needs to see."""
+
+    def _letter(self, tmp_path, text="I diagnosed the 404 before applying."):
+        path = tmp_path / "letter.txt"
+        path.write_text(text, encoding="utf-8")
+        return str(path)
+
+    def test_records_a_hand_written_proposal(self, runner, isolated_config, tmp_path):
+        init_db()
+        result = runner.invoke(
+            cli,
+            [
+                "propose",
+                "record",
+                "--from-file",
+                self._letter(tmp_path),
+                "--title",
+                "Fix a podcast RSS feed",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        stored = get_proposals()
+        assert len(stored) == 1
+        assert stored[0].content == "I diagnosed the 404 before applying."
+        assert stored[0].title == "Fix a podcast RSS feed"
+
+    def test_an_outcome_can_be_recorded_at_the_same_time(
+        self, runner, isolated_config, tmp_path
+    ):
+        init_db()
+        runner.invoke(
+            cli,
+            [
+                "propose",
+                "record",
+                "--from-file",
+                self._letter(tmp_path),
+                "--title",
+                "Fix a podcast RSS feed",
+                "--outcome",
+                "won",
+            ],
+        )
+        assert get_proposals()[0].is_won
+
+    def test_a_won_proposal_moves_its_job_to_won(
+        self, runner, isolated_config, tmp_path
+    ):
+        init_db()
+        runner.invoke(
+            cli,
+            [
+                "propose",
+                "record",
+                "--from-file",
+                self._letter(tmp_path),
+                "--title",
+                "Fix a podcast RSS feed",
+                "--outcome",
+                "won",
+            ],
+        )
+        stages = {e.job_id: e.stage for e in pipeline_api.entries()}
+        assert set(stages.values()) == {"won"}
+
+    def test_a_real_upwork_job_id_is_kept(self, runner, isolated_config, tmp_path):
+        """A recorded win has to point at the real posting, not a hash."""
+        init_db()
+        runner.invoke(
+            cli,
+            [
+                "propose",
+                "record",
+                "--from-file",
+                self._letter(tmp_path),
+                "--title",
+                "Fix a podcast RSS feed",
+                "--job-id",
+                "~022094899542523172877",
+            ],
+        )
+        assert get_proposals()[0].job_id == "~022094899542523172877"
+
+    def test_a_cached_job_needs_no_title(self, runner, isolated_config, tmp_path):
+        init_db()
+        upsert_job(JobPosting(id="~cached", title="Already known"))
+        result = runner.invoke(
+            cli,
+            [
+                "propose",
+                "record",
+                "--from-file",
+                self._letter(tmp_path),
+                "--job-id",
+                "~cached",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert get_proposals()[0].title == "Already known"
+
+    def test_an_uncached_job_id_without_a_title_is_refused(
+        self, runner, isolated_config, tmp_path
+    ):
+        init_db()
+        result = runner.invoke(
+            cli,
+            [
+                "propose",
+                "record",
+                "--from-file",
+                self._letter(tmp_path),
+                "--job-id",
+                "~unknown",
+            ],
+        )
+        assert result.exit_code == 1
+        assert "--title is needed" in result.output
+
+    def test_neither_title_nor_job_id_is_refused(
+        self, runner, isolated_config, tmp_path
+    ):
+        init_db()
+        result = runner.invoke(
+            cli, ["propose", "record", "--from-file", self._letter(tmp_path)]
+        )
+        assert result.exit_code == 1
+
+    def test_an_empty_file_is_refused(self, runner, isolated_config, tmp_path):
+        init_db()
+        result = runner.invoke(
+            cli,
+            [
+                "propose",
+                "record",
+                "--from-file",
+                self._letter(tmp_path, "   \n"),
+                "--title",
+                "Anything",
+            ],
+        )
+        assert result.exit_code == 1
+        assert "empty" in result.output
+
+    def test_a_recorded_win_reaches_propose_learn(
+        self, runner, isolated_config, tmp_path, api_key, use_completer
+    ):
+        """The point of recording it: `learn` reads won proposals."""
+        init_db()
+        runner.invoke(
+            cli,
+            [
+                "propose",
+                "record",
+                "--from-file",
+                self._letter(tmp_path, "Diagnosed before applying."),
+                "--title",
+                "Fix a podcast RSS feed",
+                "--outcome",
+                "won",
+            ],
+        )
+        fake = use_completer(FakeCompleter("## What works\nDiagnose first."))
+        result = runner.invoke(cli, ["propose", "learn"])
+        assert result.exit_code == 0, result.output
+        assert "Diagnosed before applying." in fake.prompt

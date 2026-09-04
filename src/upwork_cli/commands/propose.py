@@ -15,7 +15,7 @@ from rich.table import Table
 from upwork_cli import jobs as jobs_api
 from upwork_cli import output
 from upwork_cli import proposals as proposals_api
-from upwork_cli.ai.drafter import draft_proposal, refine_proposal
+from upwork_cli.ai.drafter import VALID_TONES, draft_proposal, refine_proposal
 from upwork_cli.ai.utils import require_api_key
 from upwork_cli.client import NotAuthenticated, get_client
 from upwork_cli.config import (
@@ -32,7 +32,7 @@ from upwork_cli.db import (
     get_winning_proposals,
     init_db,
 )
-from upwork_cli.models import JobPosting, Proposal
+from upwork_cli.models import OUTCOMES, JobPosting, Proposal
 from upwork_cli.output import console
 
 
@@ -536,6 +536,88 @@ def prep(job_id: str):
             border_style="green",
         )
     )
+
+
+# ---------------------------------------------------------------------------
+# propose record
+# ---------------------------------------------------------------------------
+
+
+@propose.command()
+@click.option(
+    "--from-file",
+    "from_file",
+    type=click.File("r"),
+    required=True,
+    help="File holding the cover letter as you actually sent it.",
+)
+@click.option("--title", type=str, default=None, help="The job's title.")
+@click.option(
+    "--job-id",
+    type=str,
+    default=None,
+    help="Upwork's job id. Derived from the title when omitted.",
+)
+@click.option(
+    "--tone",
+    type=click.Choice(VALID_TONES),
+    default="professional",
+    show_default=True,
+)
+@click.option(
+    "--outcome",
+    type=click.Choice(OUTCOMES),
+    default=None,
+    help="Record what became of it at the same time.",
+)
+def record(
+    from_file, title: str | None, job_id: str | None, tone: str, outcome: str | None
+) -> None:
+    """Store a Proposal you wrote by hand.
+
+    Upwork's terms forbid submitting through the API, so every Proposal is
+    copied out and sent by hand -- and many are edited on the way. Without
+    this, only AI drafts could be stored, so hand-written and hand-edited
+    Proposals were invisible to `propose history` and to `propose learn`,
+    which is exactly the wrong set to hide from the thing that learns what
+    wins.
+    """
+    init_db()
+
+    content = from_file.read().strip()
+    if not content:
+        output.fail("That file is empty; there is no proposal to record.")
+
+    if job_id:
+        job = get_job(job_id)
+        if job is None and not title:
+            output.fail(
+                f"Job {job_id} is not cached, so --title is needed to record it."
+            )
+        if job is None:
+            jobs_api.cache([JobPosting(id=job_id, title=title)])
+        job_title = title or job.title
+    else:
+        if not title:
+            output.fail("Give --title, or --job-id for a job already cached.")
+        digest = hashlib.sha256(title.encode("utf-8")).hexdigest()[:8]
+        job_id = f"manual-{digest}"
+        jobs_api.cache([JobPosting(id=job_id, title=title)])
+        job_title = title
+
+    try:
+        stored = proposals_api.record(job_id, job_title, content, tone)
+        if outcome:
+            stored = proposals_api.mark(stored.id, outcome)
+    except proposals_api.ProposalsError as exc:
+        output.fail(exc)
+
+    console.print(
+        f"[green]Recorded proposal [bold]#{stored.id}[/bold][/green] for {job_title}"
+    )
+    if outcome:
+        colour = OUTCOME_COLOURS.get(outcome, "white")
+        console.print(f"Outcome: [{colour}]{outcome}[/{colour}]")
 
 
 # ---------------------------------------------------------------------------

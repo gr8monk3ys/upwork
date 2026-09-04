@@ -266,6 +266,23 @@ win-rate stats only count proposals you really sent.
 Available tones: `professional`, `casual`, `technical`, `enthusiastic`
 Available lengths: `short` (~100 words), `medium` (~200 words), `long` (~350 words)
 
+### Recording what you actually sent
+
+Upwork's terms forbid submitting proposals through their API, so every
+proposal is copied out and sent by hand — and most get edited on the way. Record
+the version you really sent, so `propose learn` learns from that rather than
+from the draft:
+
+```bash
+upwork propose record --from-file letter.txt \
+  --title "Fix: RSS feed blocked by Apple Podcasts validator" \
+  --job-id "~022094899542523172877" \
+  --outcome won
+```
+
+`--job-id` is optional; without it the job is keyed off a hash of the title.
+`--outcome` can be set later instead, with `upwork propose mark <id> won`.
+
 ### Applications and Offers
 
 ```bash
