@@ -169,3 +169,38 @@ class TestDoctorCommand:
         assert result.exit_code == 1
         assert "Upwork credentials" in result.output
         assert "Authentication" in result.output
+
+
+class TestAuthenticationRemedy:
+    """`config setup` re-prompts for five credentials before reaching OAuth.
+    When only the token is missing, `config login` is the smaller answer."""
+
+    def _unauthenticated(self, monkeypatch):
+        monkeypatch.setattr(
+            "upwork_cli.diagnostics.get_client",
+            lambda: (_ for _ in ()).throw(NotAuthenticated("no token")),
+        )
+
+    def test_with_credentials_it_points_at_login(self, isolated_config, monkeypatch):
+        _configured(monkeypatch)
+        self._unauthenticated(monkeypatch)
+        auth = [
+            c for c in diagnostics.run_all(with_ai=False) if c.name == "Authentication"
+        ]
+        assert auth[0].failed
+        assert "config login" in auth[0].detail
+
+    def test_without_credentials_it_points_at_setup(self, isolated_config, monkeypatch):
+        self._unauthenticated(monkeypatch)
+        auth = [
+            c for c in diagnostics.run_all(with_ai=False) if c.name == "Authentication"
+        ]
+        assert "config setup" in auth[0].detail
+
+
+class TestConfigLogin:
+    def test_login_refuses_without_credentials(self, runner, isolated_config):
+        result = runner.invoke(cli, ["config", "login"])
+        assert result.exit_code == 1
+        assert "not configured" in result.output
+        assert "config setup" in result.output

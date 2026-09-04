@@ -79,6 +79,9 @@ Only `uv tool install` gives you a bare `upwork` command.
 # Run the interactive setup wizard (configures API keys + OAuth2)
 upwork config setup
 
+# Already have credentials saved? Just re-authorize:
+upwork config login
+
 # Import your freelancer profile for better AI proposals
 upwork config profile --file profile.md
 
