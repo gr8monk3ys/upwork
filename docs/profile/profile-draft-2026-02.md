@@ -4,7 +4,7 @@
 
 ## Professional Title
 
-**AI & Full-Stack Developer | Python, TypeScript, Next.js | RAG Systems, LLMs & Data Pipelines**
+**Full-Stack AI Developer | Python, TypeScript, Next.js | RAG & LLMs**
 
 ---
 
@@ -16,8 +16,8 @@ What I bring to the table:
 
 - AI/ML systems: RAG pipelines, LLM integrations, chatbots, and content generation tools (LangChain, FAISS, OpenAI, HuggingFace)
 - Full-stack web apps: Next.js, React, TypeScript, Python backends deployed on Vercel, AWS, and GCP
-- Data engineering: ETL pipelines, analytics dashboards, and real-time data processing
-- Infrastructure: Kubernetes clusters, Docker, GitOps, and self-hosted solutions with 50+ services
+- Data engineering: ETL pipelines, analytics dashboards, and real-time data processing (Pandas, Polars, SQL, BigQuery, Airflow, dbt)
+- Infrastructure: Kubernetes clusters, Docker, GitOps, and self-hosted solutions with 50+ services (ArgoCD, Prometheus/Grafana, RBAC, network policies)
 
 Recent highlights:
 - Built an AI content generation platform used by writers to create blog posts and books (54 GitHub stars)
@@ -26,6 +26,10 @@ Recent highlights:
 - Shipped e-commerce platforms, analytics dashboards, and algorithmic trading systems
 
 I write clean, well-documented code and communicate clearly throughout projects. I'm available for both short-term builds and ongoing development partnerships.
+
+Best for: AI/LLM application builds, full-stack MVPs, data pipeline architecture, and DevOps/infrastructure setup.
+
+Timezone: PT (US Pacific) | Available 30-40 hrs/week | Async-friendly
 
 Portfolio & code: github.com/gr8monk3ys | Website: lscaturchio.xyz
 
@@ -132,7 +136,7 @@ Custom bots and automation scripts for trading, data collection, workflow automa
 **URL:** https://blog-ai-beta-eight.vercel.app
 **GitHub:** https://github.com/gr8monk3ys/blog-AI
 **Tech:** Python, LLMs, AI Content Generation
-**Description:** Built an AI-powered content generation tool that enables writers to automatically create blog posts and complete books. The platform leverages large language models for intelligent content creation with customizable writing styles and topics. Gained 54 GitHub stars from the developer community.
+**Description:** Built an AI-powered content generation tool that enables writers to automatically create blog posts and complete books, reducing content production time from days to hours. The platform leverages large language models for intelligent content creation with customizable writing styles and topics. Gained 54 GitHub stars from the developer community.
 
 ### 2. link-flame - Eco-Friendly E-Commerce Platform
 **Category:** Full-Stack Web Development
@@ -152,13 +156,13 @@ Custom bots and automation scripts for trading, data collection, workflow automa
 **Category:** DevOps & Infrastructure
 **GitHub:** https://github.com/gr8monk3ys/homelab
 **Tech:** Kubernetes, Docker, Shell, GitOps
-**Description:** Architected and deployed a production-ready Kubernetes homelab running 50+ self-hosted services. Includes security hardening, automated deployments via GitOps, monitoring, and comprehensive documentation. Showcases deep infrastructure and DevOps expertise.
+**Description:** Architected and deployed a production-ready Kubernetes homelab running 50+ self-hosted services, serving as a full private cloud alternative. Includes security hardening with RBAC and network policies, automated deployments via ArgoCD/GitOps, Prometheus/Grafana monitoring, and comprehensive documentation.
 
 ### 5. TAlker - AI Teaching Assistant
 **Category:** AI/ML Development
 **GitHub:** https://github.com/gr8monk3ys/TAlker
 **Tech:** Python, LangChain, FAISS, Piazza API
-**Description:** Built an AI-powered teaching assistant automation tool that integrates with Piazza to supplement (not replace) human TAs. Uses LangChain for intelligent response generation and FAISS vector database for fast semantic search across course materials.
+**Description:** Built an AI-powered teaching assistant automation tool that integrates with Piazza to supplement (not replace) human TAs, reducing average response time for student questions. Uses LangChain for intelligent response generation and FAISS vector database for fast semantic search across course materials.
 
 ### 6. fraud-stream - Data Engineering Pipeline
 **Category:** Data Engineering
@@ -192,7 +196,10 @@ Custom bots and automation scripts for trading, data collection, workflow automa
 
 ---
 
-## Employment History (to add)
+## Employment History
+
+<!-- TODO: Copy your actual employment history from your Upwork account below. -->
+<!-- The entries here are placeholders — replace with real titles, companies, and dates. -->
 
 ### Freelance Software Developer
 **Self-Employed | 2017 - Present**
@@ -204,15 +211,20 @@ Selected for Google's SPS program covering software engineering best practices, 
 
 ---
 
-## Education (verify/update)
-- Add relevant degrees, certifications, or bootcamps
+## Education
+
+<!-- TODO: Copy your actual education details from your Upwork account. -->
+
+### Computer Science
+**University Name | Graduation Year**
+<!-- Replace with your actual degree, university, and year. -->
 
 ---
 
-## Certifications to Consider Adding
-- AWS Certified (if applicable)
-- Google Cloud Certified (if applicable)
-- Any AI/ML certifications
+## Certifications
+
+<!-- TODO: Copy your actual certifications from your Upwork account, if any. -->
+<!-- Remove this section entirely if you have none to list. -->
 
 ---
 
@@ -223,6 +235,6 @@ Selected for Google's SPS program covering software engineering best practices, 
 ---
 
 ## Hourly Rate Suggestion
-Based on your skill set (AI + Full-Stack + DevOps), a competitive range would be **$75-$125/hr** depending on the service. AI/ML work commands premium rates.
+Recommended range: **$85-$110/hr**. Positions you mid-to-upper market for AI + Full-Stack + DevOps work without pricing out early contracts. Adjust upward as Upwork JSS and reviews build.
 
 ---

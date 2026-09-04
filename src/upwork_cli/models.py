@@ -95,30 +95,6 @@ class JobPosting:
         )
 
     @classmethod
-    def from_rss(cls, entry: dict[str, Any]) -> "JobPosting":
-        description = entry.get("summary", "")
-        budget_str = ""
-
-        if "<b>Budget</b>:" in description:
-            parts = description.split("<b>Budget</b>:")
-            if len(parts) > 1:
-                budget_str = (
-                    parts[1].split("<br")[0].strip().replace("$", "").replace(",", "")
-                )
-
-        return cls(
-            id=entry.get("link", "").split("~")[-1]
-            if "~" in entry.get("link", "")
-            else entry.get("id", ""),
-            title=entry.get("title", ""),
-            description=description,
-            budget_amount=float(budget_str)
-            if budget_str and budget_str.replace(".", "").isdigit()
-            else None,
-            created_at=entry.get("published", ""),
-        )
-
-    @classmethod
     def from_db_row(cls, row: Mapping[str, Any]) -> "JobPosting":
         """Rebuild a posting from a ``jobs`` row.
 

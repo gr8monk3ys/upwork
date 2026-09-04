@@ -29,10 +29,20 @@ def isolated_config(tmp_path, monkeypatch):
         "PROFILE_FILE": cfg / "profile.yaml",
         "SETTINGS_FILE": cfg / "settings.yaml",
         "DB_FILE": cfg / "upwork.db",
+        "STYLE_GUIDE_FILE": cfg / "style_guide.txt",
     }
 
     # Patch in config (canonical) and all known re-importers
-    for mod in ("upwork_cli.config", "upwork_cli.db", "upwork_cli.commands.config"):
+    # Every module that re-imports one of these names binds its own copy, so
+    # each has to be patched. A name missing from this list leaks: a test
+    # writes to the developer's real ~/.config, which is how STYLE_GUIDE_FILE
+    # was caught.
+    for mod in (
+        "upwork_cli.config",
+        "upwork_cli.db",
+        "upwork_cli.commands.config",
+        "upwork_cli.commands.propose",
+    ):
         for name, value in paths.items():
             monkeypatch.setattr(f"{mod}.{name}", value, raising=False)
 
@@ -151,18 +161,6 @@ def _make_rest_job(**overrides) -> dict:
     return base
 
 
-def _make_rss_entry(**overrides) -> dict:
-    """Return a minimal RSS entry for ``JobPosting.from_rss``."""
-    base = {
-        "title": "Data Analyst Needed",
-        "link": "https://www.upwork.com/jobs/~01rss789",
-        "summary": "Analyze data.<br><b>Budget</b>: $2,500<br>",
-        "published": "2025-03-01T08:00:00Z",
-    }
-    base.update(overrides)
-    return base
-
-
 def _make_job_posting(**overrides) -> JobPosting:
     """Return a minimal valid ``JobPosting`` for ``upsert_job``."""
     return JobPosting(**_make_job_dict(**overrides))
@@ -181,11 +179,6 @@ def sample_graphql_node():
 @pytest.fixture
 def sample_rest_job():
     return _make_rest_job()
-
-
-@pytest.fixture
-def sample_rss_entry():
-    return _make_rss_entry()
 
 
 # ---------------------------------------------------------------------------

@@ -45,25 +45,6 @@ class TestJobPostingFromRest:
         assert job.skills == []
 
 
-class TestJobPostingFromRss:
-    def test_full_data(self, sample_rss_entry):
-        job = JobPosting.from_rss(sample_rss_entry)
-        # from_rss splits link on "~" and takes the last segment
-        assert job.id == "01rss789"
-        assert job.title == "Data Analyst Needed"
-        assert job.budget_amount == 2500.0
-
-    def test_no_budget_in_rss(self):
-        entry = {
-            "title": "No Budget Job",
-            "link": "",
-            "id": "rss-no-budget",
-            "summary": "Just text.",
-        }
-        job = JobPosting.from_rss(entry)
-        assert job.budget_amount is None
-
-
 class TestToDbDict:
     def test_roundtrip_fields(self, sample_graphql_node):
         job = JobPosting.from_graphql(sample_graphql_node)

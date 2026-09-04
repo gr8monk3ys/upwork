@@ -27,9 +27,27 @@ from upwork_cli.db import (
 
 class TestInitDb:
     def test_creates_tables(self, isolated_config):
+        from upwork_cli.db import get_connection
+
         init_db()
-        # A second call should not raise (IF NOT EXISTS)
-        init_db()
+        init_db()  # idempotent: every command group calls it on entry
+
+        with get_connection() as conn:
+            tables = {
+                r[0]
+                for r in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                )
+            }
+        assert {
+            "jobs",
+            "scores",
+            "proposals",
+            "bookmarks",
+            "watch_seen",
+            "pipeline",
+            "pipeline_history",
+        } <= tables
 
     def test_jobs_table_exists(self, isolated_config):
         from upwork_cli.db import get_connection

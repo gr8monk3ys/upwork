@@ -1,8 +1,8 @@
 """Reading the timestamps this tool receives.
 
-Upwork's API, its RSS feeds and SQLite all spell a moment differently, and
-two modules had grown their own parser for the overlap -- the pipeline's
-copy simply lacked the two formats the jobs copy had learned.
+Upwork's API and SQLite spell a moment differently, and two modules had
+grown their own parser for the overlap -- the pipeline's copy simply lacked
+the two formats the jobs copy had learned.
 
 Everything here returns UTC-aware datetimes. The earnings report keeps its
 own naive parser on purpose; see ``earnings.summarise``.
@@ -18,8 +18,8 @@ def parse(value: str) -> datetime | None:
     """One timestamp as a UTC-aware datetime, or None if it is unreadable.
 
     Accepts ISO-8601 with or without a zone, the ``Z`` suffix, SQLite's
-    space-separated form, and RFC-822 as the RSS feeds send it. A value with
-    no zone is read as UTC, which is what every source here means by it.
+    space-separated form, and RFC-822. A value with no zone is read as UTC,
+    which is what every source here means by it.
     """
     if not value:
         return None

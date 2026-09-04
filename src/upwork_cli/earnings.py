@@ -69,6 +69,8 @@ def fetch(
     ref = _freelancer_ref(client)
     try:
         payload = client.get_earnings(ref, from_date, to_date)
+    except ValueError as exc:
+        raise EarningsError(str(exc)) from exc
     except Exception as exc:
         raise EarningsError(f"Failed to fetch earnings: {exc}") from exc
 

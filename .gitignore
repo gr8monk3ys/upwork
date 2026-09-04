@@ -10,7 +10,8 @@ venv/
 *.egg
 .pytest_cache/
 .mypy_cache/
-uv.lock
+# uv.lock is committed on purpose: this is an application, not a
+# library. The lock is what CI installs and what `pip-audit` audits.
 .env
 *.db
 

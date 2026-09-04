@@ -19,6 +19,7 @@ from upwork_cli.db import (
     get_job,
     get_unscored_jobs,
     init_db,
+    remove_bookmark,
     save_bookmark,
 )
 from upwork_cli.models import JobPosting
@@ -618,6 +619,17 @@ def save(ctx, job_id, note):
     console.print(f"[green]Job '{job_id}' bookmarked.[/green]")
     if note:
         console.print(f"[dim]Note: {note}[/dim]")
+
+
+@jobs.command()
+@click.argument("job_id")
+def unsave(job_id: str):
+    """Remove a job from your bookmarks."""
+    init_db()
+    if not any(b.job_id == job_id for b in get_bookmarks()):
+        output.fail(f"Job '{job_id}' is not bookmarked.")
+    remove_bookmark(job_id)
+    console.print(f"[green]Job '{job_id}' removed from bookmarks.[/green]")
 
 
 @jobs.command()

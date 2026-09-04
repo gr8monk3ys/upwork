@@ -18,6 +18,7 @@ from upwork_cli.config import (
     PROFILE_FILE,
     SECRET_ENV_MAP,
     SETTINGS_FILE,
+    STYLE_GUIDE_FILE,
     Profile,
     ensure_config_dir,
     load_auth,
@@ -402,8 +403,14 @@ def reset():
         return
 
     deleted: list[str] = []
-    style_guide_file = ensure_config_dir() / "style_guide.txt"
-    for filepath in (AUTH_FILE, SETTINGS_FILE, PROFILE_FILE, DB_FILE, style_guide_file):
+    ensure_config_dir()
+    for filepath in (
+        AUTH_FILE,
+        SETTINGS_FILE,
+        PROFILE_FILE,
+        DB_FILE,
+        STYLE_GUIDE_FILE,
+    ):
         if filepath.exists():
             filepath.unlink()
             deleted.append(filepath.name)
@@ -427,44 +434,6 @@ def reset():
 # ---------------------------------------------------------------------------
 
 
-def _build_audit_summary(profile: Profile) -> str:
-    """Build a detailed audit input string from a Profile."""
-    parts = []
-    if profile.title:
-        parts.append(f"Title ({len(profile.title)} chars): {profile.title}")
-    else:
-        parts.append("Title: NOT SET")
-
-    if profile.overview:
-        parts.append(f"Overview ({len(profile.overview)} chars): {profile.overview}")
-    else:
-        parts.append("Overview: NOT SET")
-
-    if profile.skills:
-        parts.append(
-            f"Skills ({len(profile.skills)} listed): {', '.join(profile.skills)}"
-        )
-    else:
-        parts.append("Skills: NONE")
-
-    if profile.portfolio:
-        parts.append(f"Portfolio ({len(profile.portfolio)} items):")
-        for p in profile.portfolio:
-            name = p.get("name", "Untitled")
-            desc = p.get("description", "")
-            parts.append(f"  - {name}: {desc[:100]}")
-    else:
-        parts.append("Portfolio: NONE")
-
-    if profile.hourly_rate:
-        parts.append(f"Hourly Rate: {profile.hourly_rate}")
-    else:
-        parts.append("Hourly Rate: NOT SET")
-
-    parts.append(f"Experience Years: {profile.experience_years or 'NOT SET'}")
-    return "\n".join(parts)
-
-
 @config.command()
 def audit():
     """AI-powered profile completeness audit (scored 0-100)."""
@@ -477,7 +446,7 @@ def audit():
             "[bold]upwork config profile --file <path>[/bold] to import it first."
         )
 
-    profile_text = _build_audit_summary(profile)
+    profile_text = profile.audit_summary()
 
     from upwork_cli.ai.auditor import audit_profile
 

@@ -73,10 +73,32 @@ upwork config profile --file profile.md
 # Check your configuration status
 upwork config status
 
+# Prove every external path actually works, in one read-only pass
+upwork doctor
+
 # Inspect or clear keychain-backed secrets
 upwork config secrets status
 upwork config secrets clear anthropic-api-key
 ```
+
+### Checking that it works
+
+The test suite runs against in-memory fakes, which prove the code agrees with
+itself. `upwork doctor` proves it agrees with Upwork:
+
+```bash
+upwork doctor            # every read-only path: auth, search, applications,
+                         # offers, earnings, contracts, messages, and one
+                         # small Anthropic completion
+upwork doctor --no-ai    # skip the completion, which spends a few tokens
+```
+
+It is read-only — nothing is submitted, sent or changed — and it reports
+everything that is broken in one run rather than stopping at the first
+failure. Exit code is 1 if any check failed, so it works in a cron job.
+
+An account with no contracts or no applications reports `skipped`, not
+`failed`: an empty account is a working account.
 
 ## Configuration
 
@@ -183,6 +205,9 @@ upwork jobs save <job-id> --note "Interesting project, good budget"
 
 # List all bookmarked jobs
 upwork jobs saved
+
+# Remove a bookmark
+upwork jobs unsave <job-id>
 ```
 
 ### AI Proposal Generation
