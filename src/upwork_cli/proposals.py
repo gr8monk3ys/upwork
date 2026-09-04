@@ -9,12 +9,8 @@ Composes ``db`` with the Pipeline the way ``jobs`` composes the client with
 ``db``. Failures are raised, not printed.
 """
 
-from upwork_cli.db import (
-    get_proposal,
-    mark_proposal_outcome,
-    save_proposal,
-    set_pipeline_stage,
-)
+from upwork_cli import pipeline
+from upwork_cli.db import get_proposal, mark_proposal_outcome, save_proposal
 from upwork_cli.models import OUTCOMES, Proposal
 
 #: The Stage a recorded Outcome moves its Job to. ``no_response`` moves
@@ -34,7 +30,7 @@ def record(job_id: str, job_title: str, content: str, tone: str) -> Proposal:
     Pipeline can honestly place it.
     """
     proposal_id = save_proposal(job_id, job_title, content, tone)
-    set_pipeline_stage(job_id, "drafted")
+    pipeline.move(job_id, "drafted")
     stored = get_proposal(proposal_id)
     if stored is None:
         raise ProposalsError(f"Proposal #{proposal_id} could not be read back.")
@@ -58,7 +54,7 @@ def mark(proposal_id: int, outcome: str) -> Proposal:
     mark_proposal_outcome(proposal_id, outcome)
     stage = OUTCOME_STAGES.get(outcome)
     if stage and proposal.job_id:
-        set_pipeline_stage(proposal.job_id, stage)
+        pipeline.move(proposal.job_id, stage)
 
     proposal.outcome = outcome
     return proposal

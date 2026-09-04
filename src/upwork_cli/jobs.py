@@ -18,6 +18,7 @@ from upwork_cli.db import (
     upsert_job,
 )
 from upwork_cli.models import JobPosting
+from upwork_cli.pipeline import STAGES
 
 
 class JobsError(RuntimeError):
@@ -58,7 +59,7 @@ def cache(jobs: list[JobPosting]) -> None:
     """Record postings locally and place them at the start of the pipeline."""
     for job in jobs:
         upsert_job(job)
-        set_pipeline_stage_if_not_exists(job.id, "found")
+        set_pipeline_stage_if_not_exists(job.id, STAGES[0])
 
 
 def collect_new(jobs: list[JobPosting], search_term: str) -> list[JobPosting]:
@@ -74,5 +75,5 @@ def collect_new(jobs: list[JobPosting], search_term: str) -> list[JobPosting]:
         new_jobs.append(job)
         mark_seen(job.id, search_term)
         upsert_job(job)
-        set_pipeline_stage_if_not_exists(job.id, "found")
+        set_pipeline_stage_if_not_exists(job.id, STAGES[0])
     return new_jobs

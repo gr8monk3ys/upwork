@@ -10,7 +10,7 @@ from rich.markup import escape
 from rich.table import Table
 
 from upwork_cli import jobs as jobs_api
-from upwork_cli import output, watchlist
+from upwork_cli import output, timestamps, watchlist
 from upwork_cli.ai.utils import require_api_key
 from upwork_cli.client import NotAuthenticated, UpworkClient, get_client
 from upwork_cli.config import load_profile, load_settings
@@ -50,36 +50,6 @@ def _score_color(score: int) -> str:
         return "red"
 
 
-def _parse_job_timestamp(value: str) -> datetime | None:
-    """Parse common job timestamp formats into a timezone-aware datetime."""
-    if not value:
-        return None
-
-    candidates = [value.strip()]
-    if candidates[0].endswith("Z"):
-        candidates.append(candidates[0][:-1] + "+00:00")
-    if " " in candidates[0] and "T" not in candidates[0]:
-        candidates.append(candidates[0].replace(" ", "T", 1))
-
-    for candidate in candidates:
-        try:
-            parsed = datetime.fromisoformat(candidate)
-            if parsed.tzinfo is None:
-                parsed = parsed.replace(tzinfo=timezone.utc)
-            return parsed.astimezone(timezone.utc)
-        except ValueError:
-            continue
-
-    for fmt in ("%a, %d %b %Y %H:%M:%S %Z", "%Y-%m-%d"):
-        try:
-            parsed = datetime.strptime(value, fmt).replace(tzinfo=timezone.utc)
-            return parsed
-        except ValueError:
-            continue
-
-    return None
-
-
 def _matches_job_type(job: JobPosting, job_type: str | None) -> bool:
     """Best-effort job type matching from the engagement label."""
     if not job_type:
@@ -98,7 +68,7 @@ def _matches_posted_window(job: JobPosting, posted: str | None) -> bool:
     if not posted:
         return True
 
-    created_at = _parse_job_timestamp(job.created_at)
+    created_at = timestamps.parse(job.created_at)
     if created_at is None:
         return False
 

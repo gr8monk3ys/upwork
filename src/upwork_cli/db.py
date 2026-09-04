@@ -73,8 +73,6 @@ CREATE TABLE IF NOT EXISTS pipeline_history (
 );
 """
 
-PIPELINE_STAGES = ("found", "drafted", "applied", "interviewing", "won", "lost")
-
 MIGRATIONS = [
     "ALTER TABLE proposals ADD COLUMN outcome TEXT DEFAULT NULL",
     "ALTER TABLE jobs ADD COLUMN category TEXT DEFAULT ''",
