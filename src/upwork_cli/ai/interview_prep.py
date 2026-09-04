@@ -28,7 +28,7 @@ Return ONLY the markdown content, no preamble.
 def generate_interview_prep(
     job_summary: str,
     profile_summary: str,
-    api_key: str,
+    api_key: str | None = None,
     client_research: str = "",
     model: str | None = None,
 ) -> str:

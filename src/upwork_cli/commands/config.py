@@ -10,6 +10,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from upwork_cli import output
+from upwork_cli.ai.utils import require_api_key
 from upwork_cli.client import UpworkClient
 from upwork_cli.config import (
     AUTH_FILE,
@@ -475,15 +476,8 @@ def _build_audit_summary(profile: Profile) -> str:
 @config.command()
 def audit():
     """AI-powered profile completeness audit (scored 0-100)."""
-    settings = load_settings()
+    require_api_key()
     profile = load_profile()
-
-    if not settings.anthropic_api_key:
-        console.print(
-            "[red]Anthropic API key not configured.[/red] "
-            "Run [bold]upwork config setup[/bold] first."
-        )
-        raise SystemExit(1)
 
     if not profile.title and not profile.overview:
         console.print(
@@ -498,9 +492,7 @@ def audit():
 
     with console.status("[bold green]Auditing your profile..."):
         try:
-            result = audit_profile(
-                profile_text, settings.anthropic_api_key, model=settings.ai_model
-            )
+            result = audit_profile(profile_text)
         except RuntimeError as exc:
             console.print(f"[red]Profile audit failed:[/red] {exc}")
             raise SystemExit(1)

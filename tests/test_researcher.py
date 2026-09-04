@@ -41,12 +41,21 @@ class TestResearchClient:
             with pytest.raises(AIError):
                 research_client("job", None, None, None, "", False, "key")
 
-    def test_fallback_on_bad_json(self):
+    def test_unparseable_response_raises(self):
+        """Was a silent canned fallback; the caller degrades on the error
+        instead, so the user is told why research was skipped."""
         resp = mock_anthropic_response("not json")
         with patch("upwork_cli.ai.utils.Anthropic") as M:
             M.return_value.messages.create.return_value = resp
-            result = research_client("job", None, None, None, "", False, "key")
-        assert result["risk_level"] == "unknown"
+            with pytest.raises(AIError, match="client analysis"):
+                research_client("job", None, None, None, "", False, "key")
+
+    def test_non_object_response_raises(self):
+        resp = mock_anthropic_response("[1, 2, 3]")
+        with patch("upwork_cli.ai.utils.Anthropic") as M:
+            M.return_value.messages.create.return_value = resp
+            with pytest.raises(AIError, match="not a JSON object"):
+                research_client("job", None, None, None, "", False, "key")
 
     def test_invalid_values_normalized(self):
         bad = json.dumps(

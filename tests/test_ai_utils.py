@@ -7,12 +7,15 @@ import pytest
 
 from tests.conftest import mock_anthropic_response
 from upwork_cli.ai.utils import (
-    DEFAULT_MODEL,
     AIError,
+    MissingAPIKey,
     complete,
+    complete_json,
     extract_text,
+    require_api_key,
     strip_json_fences,
 )
+from upwork_cli.config import DEFAULT_MODEL
 
 
 class TestStripJsonFences:
@@ -125,3 +128,62 @@ class TestComplete:
 
     def test_ai_error_is_runtime_error(self):
         assert issubclass(AIError, RuntimeError)
+
+
+class TestConfigResolution:
+    """api_key and model are resolved from settings when not passed."""
+
+    def test_key_comes_from_settings(self, isolated_config, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "from-settings")
+        resp = mock_anthropic_response("hi")
+        with patch("upwork_cli.ai.utils.Anthropic") as M:
+            M.return_value.messages.create.return_value = resp
+            complete("prompt")
+        assert M.call_args.kwargs["api_key"] == "from-settings"
+
+    def test_an_explicit_key_wins(self, isolated_config, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "from-settings")
+        resp = mock_anthropic_response("hi")
+        with patch("upwork_cli.ai.utils.Anthropic") as M:
+            M.return_value.messages.create.return_value = resp
+            complete("prompt", "explicit", model="m")
+        assert M.call_args.kwargs["api_key"] == "explicit"
+
+    def test_model_defaults_when_settings_are_empty(self, isolated_config, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+        resp = mock_anthropic_response("hi")
+        with patch("upwork_cli.ai.utils.Anthropic") as M:
+            M.return_value.messages.create.return_value = resp
+            complete("prompt")
+        assert M.return_value.messages.create.call_args.kwargs["model"] == DEFAULT_MODEL
+
+    def test_no_key_anywhere_raises(self, isolated_config, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        with pytest.raises(MissingAPIKey, match="not configured"):
+            complete("prompt")
+
+    def test_require_api_key_raises_early(self, isolated_config, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        with pytest.raises(MissingAPIKey):
+            require_api_key()
+
+    def test_require_api_key_passes_when_configured(self, isolated_config, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+        require_api_key()  # does not raise
+
+
+class TestCompleteJson:
+    def test_parses_a_fenced_object(self, isolated_config):
+        resp = mock_anthropic_response('```json\n{"a": 1}\n```')
+        with patch("upwork_cli.ai.utils.Anthropic") as M:
+            M.return_value.messages.create.return_value = resp
+            assert complete_json("prompt", "key") == {"a": 1}
+
+    def test_unusable_output_raises_for_every_caller(self, isolated_config):
+        """One policy: modules used to variously raise or substitute a
+        canned answer."""
+        resp = mock_anthropic_response("not json at all")
+        with patch("upwork_cli.ai.utils.Anthropic") as M:
+            M.return_value.messages.create.return_value = resp
+            with pytest.raises(AIError, match="Could not parse audit response"):
+                complete_json("prompt", "key", what="audit response")

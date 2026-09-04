@@ -2,10 +2,27 @@
 
 import click
 
+from upwork_cli import output
+from upwork_cli.ai.utils import AIError
 from upwork_cli.db import init_db
 
 
-@click.group()
+class _ReportingGroup(click.Group):
+    """Turns an unhandled AIError into a red line and a non-zero exit.
+
+    Commands that can carry on without AI catch it themselves and degrade;
+    anything that reaches here could not, so the user gets the reason
+    rather than a traceback.
+    """
+
+    def invoke(self, ctx: click.Context):
+        try:
+            return super().invoke(ctx)
+        except AIError as exc:
+            output.fail(exc)
+
+
+@click.group(cls=_ReportingGroup)
 @click.version_option(version="0.1.0", prog_name="upwork")
 def cli():
     """Upwork CLI toolkit for freelancer management.

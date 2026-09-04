@@ -13,7 +13,7 @@ from upwork_cli.models import JobPosting, ScoreResult
 def score_jobs(
     jobs: list[JobPosting],
     profile_summary: str,
-    api_key: str,
+    api_key: str | None = None,
     model: str | None = None,
 ) -> list[ScoreResult]:
     """Score *jobs*, persist the successes, and return every attempt.

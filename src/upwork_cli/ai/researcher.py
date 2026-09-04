@@ -1,9 +1,8 @@
 """AI-powered client research for Upwork jobs."""
 
-import json
 from typing import Any
 
-from upwork_cli.ai.utils import complete, strip_json_fences
+from upwork_cli.ai.utils import AIError, complete_json
 
 RESEARCH_PROMPT = """\
 You are an expert Upwork freelancer advisor. Analyze this client and provide \
@@ -27,13 +26,6 @@ Respond with ONLY valid JSON (no markdown fencing):
 VALID_RISK_LEVELS = {"low", "medium", "high"}
 VALID_SPENDING_TIERS = {"new", "small", "medium", "large", "enterprise"}
 
-FALLBACK: dict[str, Any] = {
-    "risk_level": "unknown",
-    "spending_tier": "unknown",
-    "brief": "Could not parse client analysis.",
-    "proposal_tips": "",
-}
-
 
 def research_client(
     job_summary: str,
@@ -42,7 +34,7 @@ def research_client(
     feedback: float | None,
     country: str,
     verified: bool,
-    api_key: str,
+    api_key: str | None = None,
     model: str | None = None,
 ) -> dict[str, Any]:
     """Research a client based on available data.
@@ -66,19 +58,15 @@ def research_client(
 
     client_data = "\n".join(client_data_parts)
 
-    raw = complete(
+    result = complete_json(
         RESEARCH_PROMPT.format(client_data=client_data, job_summary=job_summary),
         api_key,
         model=model,
         max_tokens=2048,
+        what="client analysis",
     )
-
-    try:
-        result = json.loads(strip_json_fences(raw.strip()))
-    except json.JSONDecodeError:
-        return dict(FALLBACK)
     if not isinstance(result, dict):
-        return dict(FALLBACK)
+        raise AIError("Client analysis was not a JSON object.")
 
     risk = str(result.get("risk_level", "")).lower()
     tier = str(result.get("spending_tier", "")).lower()
