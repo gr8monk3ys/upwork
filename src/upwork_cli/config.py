@@ -359,6 +359,46 @@ class Profile:
             parts.append("Portfolio:\n" + "\n".join(items))
         return "\n".join(parts)
 
+    def audit_summary(self) -> str:
+        """How a Profile reads to the auditor.
+
+        Distinct from :meth:`summary`, which is what a Proposal is written
+        *from* and so omits whatever is absent. An audit grades completeness,
+        so absence is the subject: missing fields are named rather than
+        skipped, and lengths are given because the auditor scores on them.
+        """
+        parts = []
+        parts.append(
+            f"Title ({len(self.title)} chars): {self.title}"
+            if self.title
+            else "Title: NOT SET"
+        )
+        parts.append(
+            f"Overview ({len(self.overview)} chars): {self.overview}"
+            if self.overview
+            else "Overview: NOT SET"
+        )
+        parts.append(
+            f"Skills ({len(self.skills)} listed): {', '.join(self.skills)}"
+            if self.skills
+            else "Skills: NONE"
+        )
+        if self.portfolio:
+            parts.append(f"Portfolio ({len(self.portfolio)} items):")
+            parts.extend(
+                f"  - {p.get('name', 'Untitled')}: {p.get('description', '')[:100]}"
+                for p in self.portfolio
+            )
+        else:
+            parts.append("Portfolio: NONE")
+        parts.append(
+            f"Hourly Rate: {self.hourly_rate}"
+            if self.hourly_rate
+            else "Hourly Rate: NOT SET"
+        )
+        parts.append(f"Experience Years: {self.experience_years or 'NOT SET'}")
+        return "\n".join(parts)
+
 
 def _write_private(path: Path, text: str) -> None:
     """Write a file only its owner can read, without a window where it is not.
