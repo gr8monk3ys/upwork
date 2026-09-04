@@ -14,6 +14,7 @@ from rich.table import Table
 
 from upwork_cli import jobs as jobs_api
 from upwork_cli import output
+from upwork_cli import proposals as proposals_api
 from upwork_cli.ai.drafter import draft_proposal, refine_proposal
 from upwork_cli.ai.utils import require_api_key
 from upwork_cli.client import NotAuthenticated, get_client
@@ -25,9 +26,6 @@ from upwork_cli.db import (
     get_proposals,
     get_winning_proposals,
     init_db,
-    mark_proposal_outcome,
-    save_proposal,
-    set_pipeline_stage,
 )
 from upwork_cli.models import JobPosting
 from upwork_cli.output import console
@@ -291,15 +289,11 @@ def generate(
         content = _open_in_editor(content)
 
     # 4. Save to DB and update pipeline ------------------------------------
-    proposal_id = save_proposal(
-        job_id=job_id,
-        job_title=job_title,
-        content=content,
-        tone=tone,
-    )
-    # A draft is not an application — win-rate stats only count jobs you
-    # actually submitted. Move to "applied" once the proposal is really sent.
-    set_pipeline_stage(job_id, "drafted")
+    try:
+        stored = proposals_api.record(job_id, job_title, content, tone)
+    except proposals_api.ProposalsError as exc:
+        output.fail(exc)
+    proposal_id = stored.id
 
     # 5. Display -----------------------------------------------------------
     console.print()
@@ -352,10 +346,10 @@ def refine(proposal_id: int | None, feedback: str | None):
                 "[bold]propose generate[/bold]."
             )
 
-    original_content = proposal["content"]
-    job_id = proposal["job_id"]
-    job_title = proposal.get("job_title", "Untitled")
-    tone = proposal.get("tone", "professional")
+    original_content = proposal.content
+    job_id = proposal.job_id
+    job_title = proposal.title
+    tone = proposal.tone
 
     if feedback is None:
         feedback = click.prompt("What would you like to change?")
@@ -371,19 +365,17 @@ def refine(proposal_id: int | None, feedback: str | None):
             output.fail(f"Refinement failed: {exc}")
 
     # Save refined version as a new proposal
-    new_id = save_proposal(
-        job_id=job_id,
-        job_title=job_title,
-        content=refined_content,
-        tone=tone,
-    )
+    try:
+        new_id = proposals_api.record(job_id, job_title, refined_content, tone).id
+    except proposals_api.ProposalsError as exc:
+        output.fail(exc)
 
     # Show before / after
     console.print()
     console.print(
         Panel(
             Markdown(original_content),
-            title=f"BEFORE — Proposal #{proposal['id']}",
+            title=f"BEFORE — Proposal #{proposal.id}",
             border_style="red",
         )
     )
@@ -427,16 +419,13 @@ def history(limit: int):
     table.add_column("Date", style="green")
     table.add_column("Preview", style="dim", max_width=80)
 
-    for p in proposals:
-        preview = (p.get("content") or "")[:80].replace("\n", " ")
-        if len(p.get("content", "")) > 80:
-            preview += "..."
+    for proposal in proposals:
         table.add_row(
-            str(p["id"]),
-            p.get("job_title", "—"),
-            p.get("tone", "—"),
-            p.get("created_at", "—"),
-            preview,
+            str(proposal.id),
+            proposal.title,
+            proposal.tone,
+            proposal.created_at or "—",
+            output.truncate(proposal.content.replace("\n", " "), 80),
         )
 
     console.print(table)
@@ -464,10 +453,10 @@ def show(proposal_id: int, copy_to_clip: bool):
     if proposal is None:
         output.fail(f"Proposal #{proposal_id} not found.")
 
-    content = proposal["content"]
-    job_title = proposal.get("job_title", "Untitled")
-    tone = proposal.get("tone", "")
-    created = proposal.get("created_at", "")
+    content = proposal.content
+    job_title = proposal.title
+    tone = proposal.tone
+    created = proposal.created_at
 
     console.print()
     console.print(
@@ -539,17 +528,10 @@ def prep(job_id: str):
 @click.argument("outcome", type=click.Choice(["won", "lost", "no_response"]))
 def mark(proposal_id: int, outcome: str):
     """Mark a proposal's outcome (won/lost/no_response)."""
-    proposal = get_proposal(proposal_id)
-    if proposal is None:
-        output.fail(f"Proposal #{proposal_id} not found.")
-
-    mark_proposal_outcome(proposal_id, outcome)
-
-    # If won, also move pipeline stage
-    if outcome == "won" and proposal.get("job_id"):
-        set_pipeline_stage(proposal["job_id"], "won")
-    elif outcome == "lost" and proposal.get("job_id"):
-        set_pipeline_stage(proposal["job_id"], "lost")
+    try:
+        proposals_api.mark(proposal_id, outcome)
+    except proposals_api.ProposalsError as exc:
+        output.fail(exc)
 
     colors = {"won": "green", "lost": "red", "no_response": "yellow"}
     color = colors.get(outcome, "white")

@@ -110,7 +110,7 @@ class TestProposalOutcome:
         mark_proposal_outcome(pid, "won")
         winners = get_winning_proposals()
         assert len(winners) == 1
-        assert winners[0]["outcome"] == "won"
+        assert winners[0].outcome == "won"
 
 
 class TestPipelineCli:

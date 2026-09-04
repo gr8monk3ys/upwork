@@ -668,13 +668,13 @@ def saved(ctx):
     table.add_column("Note", max_width=40)
     table.add_column("Bookmarked At")
 
-    for bm in bookmarks:
+    for bookmark in bookmarks:
         table.add_row(
-            bm.get("job_id", ""),
-            output.truncate(bm.get("title", "") or "N/A", 50),
-            output.money(bm.get("budget_amount"), bm.get("budget_currency", "USD")),
-            bm.get("note", "") or "",
-            bm.get("bookmarked_at", "") or "",
+            bookmark.job_id,
+            output.truncate(bookmark.title or "N/A", 50),
+            output.money(bookmark.budget_amount, bookmark.budget_currency),
+            bookmark.note,
+            bookmark.bookmarked_at,
         )
 
     console.print(table)

@@ -42,11 +42,11 @@ def extract_winning_patterns(
         raise RuntimeError("No winning proposals to analyze.")
 
     parts = []
-    for i, p in enumerate(proposals, 1):
-        title = p.get("job_title", "Untitled")
-        content = p.get("content", "")
-        tone = p.get("tone", "unknown")
-        parts.append(f"--- Proposal {i} (Job: {title}, Tone: {tone}) ---\n{content}")
+    for i, proposal in enumerate(proposals, 1):
+        parts.append(
+            f"--- Proposal {i} (Job: {proposal.title}, Tone: {proposal.tone}) ---"
+            f"\n{proposal.content}"
+        )
 
     proposals_text = "\n\n".join(parts)
 

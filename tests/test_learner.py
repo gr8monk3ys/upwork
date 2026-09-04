@@ -6,6 +6,13 @@ import pytest
 
 from tests.conftest import mock_anthropic_response
 from upwork_cli.ai.learner import extract_winning_patterns
+from upwork_cli.models import Proposal
+
+
+def _won(content: str, title: str, tone: str = "professional") -> Proposal:
+    return Proposal(
+        id=1, job_id="~j", job_title=title, content=content, tone=tone, outcome="won"
+    )
 
 
 class TestExtractWinningPatterns:
@@ -14,13 +21,7 @@ class TestExtractWinningPatterns:
         with patch("upwork_cli.ai.utils.Anthropic") as M:
             M.return_value.messages.create.return_value = resp
             result = extract_winning_patterns(
-                [
-                    {
-                        "content": "My winning proposal",
-                        "job_title": "Dev",
-                        "tone": "professional",
-                    }
-                ],
+                [_won("My winning proposal", "Dev")],
                 "key",
             )
         assert "Opening" in result
@@ -34,7 +35,7 @@ class TestExtractWinningPatterns:
             M.return_value.messages.create.side_effect = Exception("fail")
             with pytest.raises(RuntimeError, match="Anthropic call failed"):
                 extract_winning_patterns(
-                    [{"content": "text", "job_title": "J", "tone": "casual"}],
+                    [_won("text", "J")],
                     "key",
                 )
 
@@ -42,13 +43,6 @@ class TestExtractWinningPatterns:
         resp = mock_anthropic_response("Style guide from multiple proposals.")
         with patch("upwork_cli.ai.utils.Anthropic") as M:
             M.return_value.messages.create.return_value = resp
-            proposals = [
-                {
-                    "content": f"Proposal {i}",
-                    "job_title": f"Job {i}",
-                    "tone": "professional",
-                }
-                for i in range(3)
-            ]
+            proposals = [_won(f"Proposal {i}", f"Job {i}") for i in range(3)]
             result = extract_winning_patterns(proposals, "key")
         assert "Style guide" in result
