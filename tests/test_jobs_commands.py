@@ -290,14 +290,16 @@ class TestJobsSearch:
         assert "Big project" in result.output
         assert "Small gig" not in result.output
 
-    def test_api_failure_is_reported_and_exits_zero(self, runner, isolated_config):
+    def test_api_failure_is_reported_and_exits_nonzero(self, runner, isolated_config):
+        """A failed search stops arriving as "no jobs found"."""
         result = self._run(
             runner,
             ["jobs", "search", "python"],
             search_results=RuntimeError("upstream"),
         )
         assert "API search failed" in result.output
-        assert result.exit_code == 0
+        assert "No jobs found" not in result.output
+        assert result.exit_code == 1
 
     def test_unauthenticated_reports_and_exits_nonzero(self, runner, isolated_config):
         """Was exit 0 until the output module made every failure exit 1."""

@@ -2,17 +2,18 @@
 
 import json
 import time
-import urllib.request
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import click
+from rich.markup import escape
 from rich.table import Table
 
 from upwork_cli import jobs as jobs_api
-from upwork_cli import output
+from upwork_cli import output, watchlist
 from upwork_cli.ai.utils import require_api_key
 from upwork_cli.client import NotAuthenticated, UpworkClient, get_client
-from upwork_cli.config import load_profile, load_settings, save_settings
+from upwork_cli.config import load_profile, load_settings
 from upwork_cli.db import (
     get_bookmarks,
     get_job,
@@ -20,7 +21,7 @@ from upwork_cli.db import (
     init_db,
     save_bookmark,
 )
-from upwork_cli.models import JobPosting, ScoreResult
+from upwork_cli.models import JobPosting
 from upwork_cli.output import console
 from upwork_cli.scoring import score_jobs
 
@@ -113,15 +114,6 @@ def _matches_posted_window(job: JobPosting, posted: str | None) -> bool:
     return created_at >= cutoff
 
 
-def _search_via_api(client: UpworkClient, query: str, limit: int) -> list[JobPosting]:
-    """Fetch jobs from the Upwork API, reporting failure to the terminal."""
-    try:
-        return jobs_api.search(client, query, limit)
-    except jobs_api.JobsError as exc:
-        console.print(f"[red]{exc}[/red]")
-        return []
-
-
 def _filter_jobs(
     jobs: list[JobPosting],
     budget_min: float | None,
@@ -169,125 +161,6 @@ def _display_jobs_table(jobs: list[JobPosting], title: str = "Search Results") -
     console.print(table)
 
 
-def _send_discord_notification(webhook_url: str, message: str) -> None:
-    """Send a notification to a Discord webhook."""
-    if not webhook_url.startswith("https://"):
-        output.warn("Discord webhook URL must use https://")
-        return
-    payload = json.dumps({"content": message}).encode("utf-8")
-    req = urllib.request.Request(
-        webhook_url,
-        data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
-        urllib.request.urlopen(req)
-    except Exception as exc:
-        output.warn(f"Discord notification failed: {exc}")
-
-
-def _normalize_search_term(query: str) -> str:
-    """Return a trimmed, whitespace-normalized search term."""
-    return " ".join(query.split())
-
-
-def _get_saved_search_terms(settings) -> list[str]:
-    """Load saved search terms from settings, normalized and deduplicated."""
-    seen: set[str] = set()
-    terms: list[str] = []
-    for item in settings.default_search_terms or []:
-        term = _normalize_search_term(str(item))
-        if term and term not in seen:
-            seen.add(term)
-            terms.append(term)
-    return terms
-
-
-def _save_search_terms(settings, terms: list[str]) -> None:
-    """Persist saved search terms without changing existing secrets."""
-    settings.default_search_terms = terms
-    save_settings(settings)
-
-
-def _collect_new_jobs(results: list[JobPosting], search_term: str) -> list[JobPosting]:
-    """Persist and return only unseen jobs for a given search term."""
-    return jobs_api.collect_new(results, search_term)
-
-
-def _score_alert_jobs(
-    new_jobs: list[JobPosting],
-    min_score: int,
-    has_scoring: bool,
-    profile_summary: str,
-) -> list[ScoreResult]:
-    """Score new jobs when possible and return only alert-worthy ones."""
-    if not has_scoring:
-        return [ScoreResult(job=job) for job in new_jobs]
-
-    results = score_jobs(new_jobs, profile_summary)
-    return [r for r in results if r.score is not None and r.score >= min_score]
-
-
-def _notify_hot_jobs(
-    hot_jobs: list[ScoreResult], notify: str, webhook_url: str
-) -> None:
-    """Emit terminal or Discord alerts for high-priority jobs."""
-    for result in hot_jobs:
-        title = result.job.title or "Untitled"
-        score = result.score if result.score is not None else "?"
-        alert_msg = f"[Score {score}] {title}"
-
-        if notify == "terminal":
-            console.print(f"  [bold yellow]>> {alert_msg}[/bold yellow]")
-            console.bell()
-        else:
-            _send_discord_notification(
-                webhook_url,
-                f"New Upwork job match!\n**{alert_msg}**",
-            )
-
-
-def _run_search_cycle(
-    client: UpworkClient,
-    settings,
-    query: str,
-    limit: int,
-    min_score: int,
-    notify: str,
-    has_scoring: bool,
-    profile_summary: str,
-    prefix: str = "",
-    show_empty_message: bool = True,
-) -> tuple[int, int]:
-    """Run one search-alert cycle for a query and return (new_jobs, alerts)."""
-    results = _search_via_api(client, query, limit=limit)
-    new_jobs = _collect_new_jobs(results, query)
-
-    label = f"{prefix}{query}" if prefix else query
-    if not new_jobs:
-        if show_empty_message:
-            console.print(f"[dim]{label}: No new jobs.[/dim]")
-        return 0, 0
-
-    console.print(
-        f"[bold green]{label}: {len(new_jobs)} new job(s) found![/bold green]"
-    )
-    hot_jobs = _score_alert_jobs(
-        new_jobs,
-        min_score=min_score,
-        has_scoring=has_scoring,
-        profile_summary=profile_summary,
-    )
-    _notify_hot_jobs(hot_jobs, notify, settings.discord_webhook_url)
-
-    if not hot_jobs and has_scoring:
-        console.print(f"  [dim]No jobs scored above {min_score}.[/dim]")
-
-    return len(new_jobs), len(hot_jobs)
-
-
 @click.group()
 def jobs():
     """Job search, scoring, watching, and bookmarking commands."""
@@ -323,7 +196,10 @@ def search(ctx, query, budget_min, budget_max, job_type, posted, limit):
     except NotAuthenticated:
         output.fail("Not authenticated. Run 'upwork config setup' first.")
 
-    results = _search_via_api(client, query, limit)
+    try:
+        results = jobs_api.search(client, query, limit)
+    except jobs_api.JobsError as exc:
+        output.fail(exc)
 
     results = _filter_jobs(results, budget_min, budget_max, job_type, posted)
 
@@ -346,7 +222,7 @@ def saved_searches():
 def list_saved_searches():
     """List saved search terms."""
     settings = load_settings()
-    search_terms = _get_saved_search_terms(settings)
+    search_terms = watchlist.terms(settings)
     if not search_terms:
         output.empty("No saved search terms yet.")
         console.print(
@@ -366,16 +242,13 @@ def list_saved_searches():
 @click.argument("query")
 def add_saved_search(query: str):
     """Add a saved search term."""
-    settings = load_settings()
-    search_terms = _get_saved_search_terms(settings)
-    term = _normalize_search_term(query)
-    if not term:
-        output.fail("Search term cannot be empty.")
-    if term in search_terms:
-        output.warn(f"Saved search already exists: {term}")
+    try:
+        term = watchlist.add(load_settings(), query)
+    except watchlist.AlreadySaved as exc:
+        output.warn(exc)
         return
-    search_terms.append(term)
-    _save_search_terms(settings, search_terms)
+    except watchlist.WatchlistError as exc:
+        output.fail(exc)
     console.print(f"[green]Added saved search:[/green] {term}")
 
 
@@ -383,26 +256,40 @@ def add_saved_search(query: str):
 @click.argument("query")
 def remove_saved_search(query: str):
     """Remove a saved search term."""
-    settings = load_settings()
-    search_terms = _get_saved_search_terms(settings)
-    term = _normalize_search_term(query)
-    if term not in search_terms:
-        console.print(f"[yellow]Saved search not found:[/yellow] {term}")
+    try:
+        term = watchlist.remove(load_settings(), query)
+    except watchlist.NotSaved as exc:
+        output.warn(exc)
         return
-    updated_terms = [item for item in search_terms if item != term]
-    _save_search_terms(settings, updated_terms)
     console.print(f"[green]Removed saved search:[/green] {term}")
 
 
-def _prepare_saved_search_run(
-    notify: str,
-) -> tuple[object, list[str], bool, str, UpworkClient, int, int]:
-    """Load shared state for saved-search commands."""
+@dataclass
+class _SavedSearchRun:
+    """Everything the saved-search commands need, checked once.
+
+    Was a seven-member tuple unpacked positionally, two of whose members
+    were settings fields already carried by the first, and one of which
+    `searches run` discarded.
+    """
+
+    settings: object
+    terms: list[str]
+    client: UpworkClient
+    scored: bool
+    profile_summary: str
+
+
+def _prepare_run(notify: str, query: str | None = None) -> _SavedSearchRun:
+    """Load and check everything a search-alert run needs.
+
+    *query* runs one ad-hoc term; without it the saved terms are used.
+    """
     init_db()
     settings = load_settings()
     profile = load_profile()
-    search_terms = _get_saved_search_terms(settings)
-    if not search_terms:
+    search_terms = [watchlist.normalize(query)] if query else watchlist.terms(settings)
+    if not search_terms or not search_terms[0]:
         console.print(
             "[dim]Use 'upwork jobs searches add \"python developer\"' to add one.[/dim]"
         )
@@ -413,27 +300,77 @@ def _prepare_saved_search_run(
             "Discord webhook URL not configured. Run 'upwork config setup' to set it."
         )
 
-    has_scoring = bool(settings.anthropic_api_key and (profile.title or profile.skills))
-    if not has_scoring:
+    scored = bool(settings.anthropic_api_key and (profile.title or profile.skills))
+    if not scored:
         output.warn(
             "Scoring disabled: missing API key or profile. New jobs will not be scored."
         )
 
-    profile_summary = profile.summary() if has_scoring else ""
     try:
         client = get_client()
     except NotAuthenticated:
         output.fail("Not authenticated. Run 'upwork config setup' first.")
 
-    return (
-        settings,
-        search_terms,
-        has_scoring,
-        profile_summary,
-        client,
-        settings.watch_interval_minutes,
-        settings.min_score_threshold,
+    return _SavedSearchRun(
+        settings=settings,
+        terms=search_terms,
+        client=client,
+        scored=scored,
+        profile_summary=profile.summary() if scored else "",
     )
+
+
+def _emit_alerts(report: watchlist.CycleReport, notify: str, webhook_url: str) -> None:
+    """Deliver one cycle's alerts by the chosen means."""
+    for result in report.alerts:
+        text = watchlist.alert_text(result)
+        if notify == "terminal":
+            console.print(f"  [bold yellow]>> {escape(text)}[/bold yellow]")
+            console.bell()
+            continue
+        try:
+            watchlist.send_discord(webhook_url, f"New Upwork job match!\n**{text}**")
+        except watchlist.WatchlistError as exc:
+            # A webhook that will not accept a POST must not end a watch loop.
+            output.warn(exc)
+
+
+def _cycle(
+    run: _SavedSearchRun,
+    term: str,
+    *,
+    limit: int,
+    min_score: int,
+    notify: str,
+    label: str,
+    show_empty: bool = True,
+) -> watchlist.CycleReport:
+    """Run one cycle and render it. A failed search is reported, not hidden."""
+    try:
+        report = watchlist.run_cycle(
+            run.client,
+            term,
+            limit=limit,
+            min_score=min_score,
+            profile_summary=run.profile_summary,
+            scored=run.scored,
+        )
+    except jobs_api.JobsError as exc:
+        output.warn(f"{label}: {exc}")
+        return watchlist.CycleReport(term=term, scored=run.scored)
+
+    if not report.new_jobs:
+        if show_empty:
+            console.print(f"[dim]{label}: No new jobs.[/dim]")
+        return report
+
+    console.print(
+        f"[bold green]{label}: {report.new_count} new job(s) found![/bold green]"
+    )
+    _emit_alerts(report, notify, run.settings.discord_webhook_url)
+    if not report.alerts and report.scored:
+        console.print(f"  [dim]No jobs scored above {min_score}.[/dim]")
+    return report
 
 
 @saved_searches.command("run")
@@ -456,33 +393,19 @@ def _prepare_saved_search_run(
 )
 def run_saved_searches(limit: int, min_score: int | None, notify: str):
     """Run all saved searches once and alert on new matches."""
-    (
-        settings,
-        search_terms,
-        has_scoring,
-        profile_summary,
-        client,
-        _interval_default,
-        min_score_default,
-    ) = _prepare_saved_search_run(notify)
-    min_score = min_score if min_score is not None else min_score_default
+    run = _prepare_run(notify)
+    if min_score is None:
+        min_score = run.settings.min_score_threshold
 
-    console.print(f"[bold]Running {len(search_terms)} saved search(es)...[/bold]")
+    console.print(f"[bold]Running {len(run.terms)} saved search(es)...[/bold]")
     total_new = 0
     total_alerts = 0
-    for query in search_terms:
-        new_count, alert_count = _run_search_cycle(
-            client,
-            settings,
-            query=query,
-            limit=limit,
-            min_score=min_score,
-            notify=notify,
-            has_scoring=has_scoring,
-            profile_summary=profile_summary,
+    for term in run.terms:
+        report = _cycle(
+            run, term, limit=limit, min_score=min_score, notify=notify, label=term
         )
-        total_new += new_count
-        total_alerts += alert_count
+        total_new += report.new_count
+        total_alerts += report.alert_count
 
     if total_new == 0:
         output.empty("No new jobs found across saved searches.")
@@ -516,21 +439,15 @@ def watch_saved_searches(
     interval: int | None, limit: int, min_score: int | None, notify: str
 ):
     """Continuously watch all saved searches."""
-    (
-        settings,
-        search_terms,
-        has_scoring,
-        profile_summary,
-        client,
-        interval_default,
-        min_score_default,
-    ) = _prepare_saved_search_run(notify)
-    interval = interval if interval is not None else interval_default
-    min_score = min_score if min_score is not None else min_score_default
+    run = _prepare_run(notify)
+    if interval is None:
+        interval = run.settings.watch_interval_minutes
+    if min_score is None:
+        min_score = run.settings.min_score_threshold
 
-    console.print(f"[bold]Watching {len(search_terms)} saved search(es)...[/bold]")
-    for query in search_terms:
-        console.print(f"[dim]- {query}[/dim]")
+    console.print(f"[bold]Watching {len(run.terms)} saved search(es)...[/bold]")
+    for term in run.terms:
+        console.print(f"[dim]- {term}[/dim]")
     console.print(
         f"[dim]Interval: {interval}m | Min score: {min_score} | Notify: {notify}[/dim]"
     )
@@ -541,27 +458,24 @@ def watch_saved_searches(
             cycle_new = 0
             cycle_alerts = 0
             stamp = time.strftime("%H:%M:%S")
-            for query in search_terms:
-                new_count, alert_count = _run_search_cycle(
-                    client,
-                    settings,
-                    query=query,
+            for term in run.terms:
+                report = _cycle(
+                    run,
+                    term,
                     limit=limit,
                     min_score=min_score,
                     notify=notify,
-                    has_scoring=has_scoring,
-                    profile_summary=profile_summary,
-                    prefix=f"{stamp} -- ",
-                    show_empty_message=False,
+                    label=f"{stamp} -- {term}",
+                    show_empty=False,
                 )
-                cycle_new += new_count
-                cycle_alerts += alert_count
+                cycle_new += report.new_count
+                cycle_alerts += report.alert_count
 
             if cycle_new == 0:
                 console.print(
                     f"[dim]{stamp} -- No new jobs across saved searches.[/dim]"
                 )
-            elif has_scoring and cycle_alerts == 0:
+            elif run.scored and cycle_alerts == 0:
                 console.print(
                     f"[dim]{stamp} -- No saved-search jobs scored above {min_score}.[/dim]"
                 )
@@ -638,30 +552,14 @@ def score(ctx):
 @click.pass_context
 def watch(ctx, query, interval, min_score, notify):
     """Monitor for new jobs matching a query."""
-    init_db()
-    settings = load_settings()
-    profile = load_profile()
-    interval = interval if interval is not None else settings.watch_interval_minutes
-    min_score = min_score if min_score is not None else settings.min_score_threshold
+    run = _prepare_run(notify, query=query)
+    if interval is None:
+        interval = run.settings.watch_interval_minutes
+    if min_score is None:
+        min_score = run.settings.min_score_threshold
+    term = run.terms[0]
 
-    if notify == "discord" and not settings.discord_webhook_url:
-        output.fail(
-            "Discord webhook URL not configured. Run 'upwork config setup' to set it."
-        )
-
-    has_scoring = bool(settings.anthropic_api_key and (profile.title or profile.skills))
-    if not has_scoring:
-        output.warn(
-            "Scoring disabled: missing API key or profile. New jobs will not be scored."
-        )
-
-    profile_summary = profile.summary() if has_scoring else ""
-    try:
-        client = get_client()
-    except NotAuthenticated:
-        output.fail("Not authenticated. Run 'upwork config setup' first.")
-
-    console.print(f"[bold]Watching for:[/bold] {query}")
+    console.print(f"[bold]Watching for:[/bold] {term}")
     console.print(
         f"[dim]Interval: {interval}m | Min score: {min_score} | Notify: {notify}[/dim]"
     )
@@ -669,18 +567,14 @@ def watch(ctx, query, interval, min_score, notify):
 
     try:
         while True:
-            _run_search_cycle(
-                client,
-                settings,
-                query=query,
+            _cycle(
+                run,
+                term,
                 limit=20,
                 min_score=min_score,
                 notify=notify,
-                has_scoring=has_scoring,
-                profile_summary=profile_summary,
-                prefix=f"{time.strftime('%H:%M:%S')} -- ",
+                label=f"{time.strftime('%H:%M:%S')} -- {term}",
             )
-
             time.sleep(interval * 60)
 
     except KeyboardInterrupt:
