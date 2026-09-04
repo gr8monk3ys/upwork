@@ -162,9 +162,8 @@ def setup():
             console.print("Authenticated (could not fetch user details).")
 
     except Exception as exc:
-        console.print(f"\n[red]OAuth error: {exc}[/red]")
         console.print("You can retry with [bold]upwork config setup[/bold] later.")
-        raise SystemExit(1)
+        output.fail(f"OAuth error: {exc}")
 
 
 # ---------------------------------------------------------------------------
@@ -357,24 +356,15 @@ def profile(file_path: str | None):
             console.print(f"Parsing Markdown profile from [bold]{path}[/bold]...")
             prof = Profile.from_markdown(path.read_text(encoding="utf-8"))
             if prof.is_empty:
-                console.print(
-                    "[red]Could not extract profile fields from the Markdown file.[/red]"
-                )
-                raise SystemExit(1)
+                output.fail("Could not extract profile fields from the Markdown file.")
         elif ext in (".yaml", ".yml"):
             console.print(f"Loading YAML profile from [bold]{path}[/bold]...")
             raw = yaml.safe_load(path.read_text(encoding="utf-8"))
             if not isinstance(raw, dict):
-                console.print(
-                    "[red]YAML file must contain a mapping at the top level.[/red]"
-                )
-                raise SystemExit(1)
+                output.fail("YAML file must contain a mapping at the top level.")
             prof = Profile.from_dict(raw)
         else:
-            console.print(
-                f"[red]Unsupported file type: {ext}. Use .md or .yaml/.yml[/red]"
-            )
-            raise SystemExit(1)
+            output.fail(f"Unsupported file type: {ext}. Use .md or .yaml/.yml")
     else:
         # Interactive prompts
         console.print(Panel("[bold]Profile Setup[/bold]", style="blue"))
@@ -480,11 +470,10 @@ def audit():
     profile = load_profile()
 
     if not profile.title and not profile.overview:
-        console.print(
-            "[yellow]Profile is empty.[/yellow] "
-            "Run [bold]upwork config profile --file <path>[/bold] to import your profile first."
+        output.fail(
+            "Profile is empty. Run "
+            "[bold]upwork config profile --file <path>[/bold] to import it first."
         )
-        raise SystemExit(1)
 
     profile_text = _build_audit_summary(profile)
 
@@ -494,8 +483,7 @@ def audit():
         try:
             result = audit_profile(profile_text)
         except RuntimeError as exc:
-            console.print(f"[red]Profile audit failed:[/red] {exc}")
-            raise SystemExit(1)
+            output.fail(f"Profile audit failed: {exc}")
 
     total = result.get("total_score", 0)
 

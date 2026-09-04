@@ -172,7 +172,7 @@ def _display_jobs_table(jobs: list[JobPosting], title: str = "Search Results") -
 def _send_discord_notification(webhook_url: str, message: str) -> None:
     """Send a notification to a Discord webhook."""
     if not webhook_url.startswith("https://"):
-        console.print("[red]Discord webhook URL must use https://[/red]")
+        output.warn("Discord webhook URL must use https://")
         return
     payload = json.dumps({"content": message}).encode("utf-8")
     req = urllib.request.Request(
@@ -185,7 +185,7 @@ def _send_discord_notification(webhook_url: str, message: str) -> None:
         # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
         urllib.request.urlopen(req)
     except Exception as exc:
-        console.print(f"[red]Discord notification failed: {exc}[/red]")
+        output.warn(f"Discord notification failed: {exc}")
 
 
 def _normalize_search_term(query: str) -> str:
@@ -370,8 +370,7 @@ def add_saved_search(query: str):
     search_terms = _get_saved_search_terms(settings)
     term = _normalize_search_term(query)
     if not term:
-        console.print("[red]Search term cannot be empty.[/red]")
-        raise SystemExit(1)
+        output.fail("Search term cannot be empty.")
     if term in search_terms:
         output.warn(f"Saved search already exists: {term}")
         return
@@ -404,17 +403,15 @@ def _prepare_saved_search_run(
     profile = load_profile()
     search_terms = _get_saved_search_terms(settings)
     if not search_terms:
-        console.print("[yellow]No saved search terms configured.")
         console.print(
             "[dim]Use 'upwork jobs searches add \"python developer\"' to add one.[/dim]"
         )
-        raise SystemExit(1)
+        output.fail("No saved search terms configured.")
 
     if notify == "discord" and not settings.discord_webhook_url:
-        console.print(
-            "[red]Discord webhook URL not configured. Run 'upwork config setup' to set it.[/red]"
+        output.fail(
+            "Discord webhook URL not configured. Run 'upwork config setup' to set it."
         )
-        raise SystemExit(1)
 
     has_scoring = bool(settings.anthropic_api_key and (profile.title or profile.skills))
     if not has_scoring:
@@ -583,10 +580,7 @@ def score(ctx):
     profile = load_profile()
 
     if not profile.title and not profile.skills:
-        output.warn(
-            "Profile is empty. Run 'upwork config profile' to set up your profile first."
-        )
-        return
+        output.fail("Profile is empty. Run 'upwork config profile' to set it up first.")
 
     unscored = get_unscored_jobs(limit=50)
 
@@ -651,10 +645,9 @@ def watch(ctx, query, interval, min_score, notify):
     min_score = min_score if min_score is not None else settings.min_score_threshold
 
     if notify == "discord" and not settings.discord_webhook_url:
-        console.print(
-            "[red]Discord webhook URL not configured. Run 'upwork config setup' to set it.[/red]"
+        output.fail(
+            "Discord webhook URL not configured. Run 'upwork config setup' to set it."
         )
-        return
 
     has_scoring = bool(settings.anthropic_api_key and (profile.title or profile.skills))
     if not has_scoring:
@@ -714,8 +707,7 @@ def detail(ctx, job_id):
     if job is None:
         job = get_job(job_id)
         if job is None:
-            console.print(f"[red]Job '{job_id}' not found in API or local cache.[/red]")
-            return
+            output.fail(f"Job '{job_id}' not found in API or local cache.")
 
     # Display full details
     console.print()

@@ -206,17 +206,15 @@ def generate(
             upsert_job(posting)
             job = get_job(job_id)
         except Exception as exc:
-            console.print(f"[red]Failed to fetch job {job_id}:[/red] {exc}")
             console.print(
                 "[dim]Tip: save the job posting text to a file and run "
                 "[bold]propose generate --from-file <path>[/bold] — "
                 "no API access needed.[/dim]"
             )
-            raise SystemExit(1)
+            output.fail(f"Failed to fetch job {job_id}: {exc}")
 
     if job is None:
-        console.print(f"[red]Job {job_id} could not be loaded.[/red]")
-        raise SystemExit(1)
+        output.fail(f"Job {job_id} could not be loaded.")
 
     job_title = job.title or "Untitled"
 
@@ -290,8 +288,7 @@ def generate(
                 style_guide=style_guide,
             )
         except RuntimeError as exc:
-            console.print(f"[red]Proposal generation failed:[/red] {exc}")
-            raise SystemExit(1)
+            output.fail(f"Proposal generation failed: {exc}")
 
     # 3. Optional editor pass ----------------------------------------------
     if open_editor:
@@ -350,15 +347,14 @@ def refine(proposal_id: int | None, feedback: str | None):
     if proposal_id is not None:
         proposal = get_proposal(proposal_id)
         if proposal is None:
-            console.print(f"[red]Proposal #{proposal_id} not found.[/red]")
-            raise SystemExit(1)
+            output.fail(f"Proposal #{proposal_id} not found.")
     else:
         proposal = get_latest_proposal()
         if proposal is None:
-            console.print(
-                "[red]No proposals found.[/red] Generate one first with [bold]propose generate[/bold]."
+            output.fail(
+                "No proposals found. Generate one first with "
+                "[bold]propose generate[/bold]."
             )
-            raise SystemExit(1)
 
     original_content = proposal["content"]
     job_id = proposal["job_id"]
@@ -376,8 +372,7 @@ def refine(proposal_id: int | None, feedback: str | None):
                 feedback=feedback,
             )
         except RuntimeError as exc:
-            console.print(f"[red]Refinement failed:[/red] {exc}")
-            raise SystemExit(1)
+            output.fail(f"Refinement failed: {exc}")
 
     # Save refined version as a new proposal
     new_id = save_proposal(
@@ -471,8 +466,7 @@ def show(proposal_id: int, copy_to_clip: bool):
     proposal = get_proposal(proposal_id)
 
     if proposal is None:
-        console.print(f"[red]Proposal #{proposal_id} not found.[/red]")
-        raise SystemExit(1)
+        output.fail(f"Proposal #{proposal_id} not found.")
 
     content = proposal["content"]
     job_title = proposal.get("job_title", "Untitled")
@@ -493,9 +487,9 @@ def show(proposal_id: int, copy_to_clip: bool):
         if _copy_to_clipboard(content):
             console.print("\n[green]Copied to clipboard.[/green]")
         else:
-            console.print(
-                "\n[red]Failed to copy to clipboard.[/red] "
-                "[dim](no clipboard tool found — install pbcopy, wl-copy, xclip, or xsel)[/dim]"
+            output.warn(
+                "Failed to copy to clipboard "
+                "(no clipboard tool found — install pbcopy, wl-copy, xclip, or xsel)."
             )
 
 
@@ -513,8 +507,7 @@ def prep(job_id: str):
 
     job = get_job(job_id)
     if job is None:
-        console.print(f"[red]Job {job_id} not found in local cache.[/red]")
-        raise SystemExit(1)
+        output.fail(f"Job {job_id} not found in local cache.")
 
     job_summary = job.summary_for_ai()
     profile_summary = profile.summary() if profile.title else ""
@@ -528,8 +521,7 @@ def prep(job_id: str):
                 profile_summary=profile_summary,
             )
         except RuntimeError as exc:
-            console.print(f"[red]{exc}[/red]")
-            raise SystemExit(1)
+            output.fail(exc)
 
     console.print()
     console.print(
@@ -553,8 +545,7 @@ def mark(proposal_id: int, outcome: str):
     """Mark a proposal's outcome (won/lost/no_response)."""
     proposal = get_proposal(proposal_id)
     if proposal is None:
-        console.print(f"[red]Proposal #{proposal_id} not found.[/red]")
-        raise SystemExit(1)
+        output.fail(f"Proposal #{proposal_id} not found.")
 
     mark_proposal_outcome(proposal_id, outcome)
 
@@ -593,8 +584,7 @@ def learn():
         try:
             style_guide = extract_winning_patterns(winners)
         except RuntimeError as exc:
-            console.print(f"[red]{exc}[/red]")
-            raise SystemExit(1)
+            output.fail(exc)
 
     # Cache to disk
     style_guide_path = CONFIG_DIR / "style_guide.txt"

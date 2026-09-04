@@ -173,8 +173,7 @@ def show_application(application_id: str) -> None:
         output.fail(exc)
 
     if application is None:
-        output.warn(f"Application {application_id} was not found.")
-        raise SystemExit(1)
+        output.fail(f"Application {application_id} was not found.")
 
     job = application.job
     summary = [
@@ -281,8 +280,7 @@ def show_offer(offer_id: str) -> None:
         output.fail(exc)
 
     if offer is None:
-        output.warn(f"Offer {offer_id} was not found.")
-        raise SystemExit(1)
+        output.fail(f"Offer {offer_id} was not found.")
 
     lines = [
         f"[bold]Offer ID:[/bold] {offer.id}",

@@ -150,8 +150,7 @@ def export(output_file: str) -> None:
             writer.writerow(list(EarningRow.COLUMNS))
             writer.writerows(row.as_cells() for row in rows)
     except OSError as exc:
-        console.print(f"[red]Failed to write file: {exc}[/red]")
-        raise SystemExit(1) from exc
+        output.fail(f"Failed to write file: {exc}")
 
     console.print(f"[green]Exported {len(rows)} records to {output_file}[/green]")
 
@@ -177,8 +176,7 @@ def contracts_list() -> None:
     try:
         data = client.get_engagements()
     except Exception as exc:
-        console.print(f"[red]Failed to fetch contracts: {exc}[/red]")
-        raise SystemExit(1)
+        output.fail(f"Failed to fetch contracts: {exc}")
 
     engagements = (
         data.get("engagements", {}).get("engagement", [])
@@ -251,8 +249,7 @@ def contracts_detail(reference: str) -> None:
     try:
         data = client.get_engagement(reference)
     except Exception as exc:
-        console.print(f"[red]Failed to fetch contract detail: {exc}[/red]")
-        raise SystemExit(1)
+        output.fail(f"Failed to fetch contract detail: {exc}")
 
     eng = data.get("engagement", data)
     contract = Contract.from_api(eng)
@@ -319,8 +316,7 @@ def contracts_submit(reference: str, message: str) -> None:
     try:
         data = client.get_engagement(reference)
     except Exception as exc:
-        console.print(f"[red]Failed to fetch contract: {exc}[/red]")
-        raise SystemExit(1)
+        output.fail(f"Failed to fetch contract: {exc}")
 
     eng = data.get("engagement", data)
     contract = Contract.from_api(eng)
@@ -347,5 +343,4 @@ def contracts_submit(reference: str, message: str) -> None:
         client.submit_work(params)
         console.print("[green]Work submitted successfully![/green]")
     except Exception as exc:
-        console.print(f"[red]Failed to submit work: {exc}[/red]")
-        raise SystemExit(1)
+        output.fail(f"Failed to submit work: {exc}")
