@@ -1,16 +1,14 @@
 """Click command group for managing Upwork messages from the terminal."""
 
 import click
-from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from upwork_cli import messaging
+from upwork_cli import messaging, output
 from upwork_cli.client import NotAuthenticated, UpworkClient, get_client
 from upwork_cli.models import Conversation, Message
-
-console = Console()
+from upwork_cli.output import console
 
 AUTH_ERROR_MESSAGE = (
     "Not authenticated. Run [bold]upwork config setup[/bold] to configure "
@@ -23,13 +21,7 @@ def _get_client() -> UpworkClient:
     try:
         return get_client()
     except NotAuthenticated:
-        console.print(f"\n[red]{AUTH_ERROR_MESSAGE}[/red]\n")
-        raise SystemExit(1) from None
-
-
-def _fail(exc: Exception) -> None:
-    console.print(f"[red]{exc}[/red]")
-    raise SystemExit(1)
+        output.fail(AUTH_ERROR_MESSAGE)
 
 
 def _message_panel(message: Message, is_own: bool) -> Panel:
@@ -81,10 +73,10 @@ def list_rooms(limit: int) -> None:
     try:
         rooms = messaging.list_rooms(client, limit)
     except messaging.MessagingError as exc:
-        _fail(exc)
+        output.fail(exc)
 
     if not rooms:
-        console.print("[yellow]No conversations found.[/yellow]")
+        output.empty("No conversations found.")
         return
 
     table = Table(title="Recent Conversations", show_lines=True)
@@ -119,10 +111,10 @@ def read_messages(room_id: str, limit: int) -> None:
     try:
         conversation = messaging.read_room(client, room_id, limit)
     except messaging.MessagingError as exc:
-        _fail(exc)
+        output.fail(exc)
 
     if not conversation.messages:
-        console.print(f"[yellow]No messages found in room {room_id}.[/yellow]")
+        output.empty(f"No messages found in room {room_id}.")
         return
 
     console.print(f"\n[bold]Conversation in room [cyan]{room_id}[/cyan][/bold]\n")
@@ -141,13 +133,13 @@ def send_message(room_id: str, text: str) -> None:
     console.print(f"[bold]Message:[/bold] {text}\n")
 
     if not click.confirm("Send this message?"):
-        console.print("[yellow]Message not sent.[/yellow]")
+        output.warn("Message not sent.")
         return
 
     try:
         messaging.send_message(client, room_id, text)
     except messaging.MessagingError as exc:
-        _fail(exc)
+        output.fail(exc)
 
     console.print("[green]Message sent successfully.[/green]\n")
     console.print(
@@ -181,10 +173,10 @@ def find_room(contract: str, limit: int) -> None:
     try:
         conversation = messaging.find_room_for_contract(client, contract, limit)
     except messaging.MessagingError as exc:
-        _fail(exc)
+        output.fail(exc)
 
     if conversation is None:
-        console.print(f"[yellow]No room found for contract {contract}.[/yellow]")
+        output.empty(f"No room found for contract {contract}.")
         return
 
     console.print(
@@ -193,7 +185,7 @@ def find_room(contract: str, limit: int) -> None:
     )
 
     if not conversation.messages:
-        console.print("[yellow]No recent messages in this room.[/yellow]")
+        output.empty("No recent messages in this room.")
         return
 
     console.print(f"[bold]Recent messages ({len(conversation.messages)}):[/bold]\n")

@@ -3,10 +3,9 @@
 from datetime import datetime, timedelta, timezone
 
 import click
-from rich.console import Console
 from rich.table import Table
 
-from upwork_cli.commands.jobs import _format_budget, _truncate
+from upwork_cli import output
 from upwork_cli.db import (
     PIPELINE_STAGES,
     get_pipeline_history,
@@ -15,8 +14,7 @@ from upwork_cli.db import (
     init_db,
     set_pipeline_stage,
 )
-
-console = Console()
+from upwork_cli.output import console
 
 
 def _parse_history_timestamp(value: str) -> datetime | None:
@@ -81,7 +79,7 @@ def view(stage):
 
     if not jobs:
         suffix = f' at stage "{stage}"' if stage else ""
-        console.print(f"[yellow]No jobs in the pipeline{suffix}.[/yellow]")
+        output.empty(f"No jobs in the pipeline{suffix}.")
         return
 
     table = Table(title=title, show_lines=True)
@@ -107,9 +105,9 @@ def view(stage):
 
         table.add_row(
             j.get("job_id", ""),
-            _truncate(j.get("title", "") or "N/A", 40),
+            output.truncate(j.get("title", "") or "N/A", 40),
             f"[{color}]{st}[/{color}]",
-            _format_budget(j.get("budget_amount"), j.get("budget_currency", "USD")),
+            output.money(j.get("budget_amount"), j.get("budget_currency", "USD")),
             score_str,
             j.get("moved_at", ""),
         )
@@ -138,7 +136,7 @@ def stats():
     data = get_pipeline_stats()
 
     if data["total"] == 0:
-        console.print("[yellow]No jobs in the pipeline yet.[/yellow]")
+        output.empty("No jobs in the pipeline yet.")
         return
 
     # Stage counts
@@ -177,15 +175,13 @@ def digest(days):
     history = get_pipeline_history()
 
     if not history:
-        console.print("[yellow]No pipeline activity yet.[/yellow]")
+        output.empty("No pipeline activity yet.")
         return
 
     recent = _filter_recent_history(history, days)
 
     if not recent:
-        console.print(
-            f"[yellow]No pipeline activity in the last {days} day(s).[/yellow]"
-        )
+        output.empty(f"No pipeline activity in the last {days} day(s).")
         return
 
     table = Table(title=f"Pipeline Activity (last {days} days)", show_lines=True)
@@ -198,7 +194,7 @@ def digest(days):
         from_st = h.get("from_stage") or "-"
         to_st = h.get("to_stage", "?")
         table.add_row(
-            _truncate(h.get("title", "") or h.get("job_id", ""), 35),
+            output.truncate(h.get("title", "") or h.get("job_id", ""), 35),
             from_st,
             to_st,
             h.get("moved_at", ""),

@@ -1,11 +1,8 @@
 """Main CLI entry point for the Upwork toolkit."""
 
 import click
-from rich.console import Console
 
 from upwork_cli.db import init_db
-
-console = Console()
 
 
 @click.group()
