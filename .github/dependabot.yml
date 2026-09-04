@@ -9,3 +9,16 @@ updates:
       # repo; Dependabot cannot reach it (git_dependencies_not_reachable)
       # and fails every weekly run. They are pinned manually, not versioned.
       - dependency-name: "gr8monk3ys/*"
+
+  # The Python dependencies were unwatched: nothing opened a PR when
+  # `anthropic` or the Upwork SDK moved, and there were no upper bounds to
+  # stop a breaking major installing itself.
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      python-patch-and-minor:
+        update-types:
+          - "patch"
+          - "minor"
