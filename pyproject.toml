@@ -23,7 +23,7 @@ dependencies = [
 
 [project.optional-dependencies]
 test = [
-    "pytest>=7.0,<9",
+    "pytest>=9.0.3,<10",
     "pytest-mock>=3.10,<4",
     "pytest-cov>=4.0,<8",
     "pre-commit>=4.0,<5",
