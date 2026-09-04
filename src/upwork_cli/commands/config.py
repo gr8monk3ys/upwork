@@ -130,14 +130,28 @@ def setup():
         "\n[green]Settings saved (secrets stored in system keychain).[/green]"
     )
 
-    # --- OAuth2 flow ---
+    _authorize(settings)
+
+
+# ---------------------------------------------------------------------------
+# status
+# ---------------------------------------------------------------------------
+
+
+def _authorize(settings) -> None:
+    """Walk the OAuth2 flow and store the token.
+
+    Shared by `config setup` and `config login`: the flow is identical, and
+    only `setup` needs the credential prompts that precede it.
+    """
     console.print("\n[bold cyan]Upwork OAuth2 Authorization[/bold cyan]")
     try:
         client = UpworkClient(settings=settings)
         auth_url = client.get_authorization_url()
 
         console.print(
-            f"\nOpening authorization URL in your browser...\n[link={auth_url}]{auth_url}[/link]"
+            "\nOpening authorization URL in your browser...\n"
+            f"[link={auth_url}]{auth_url}[/link]"
         )
         webbrowser.open(auth_url)
 
@@ -165,13 +179,24 @@ def setup():
             console.print("Authenticated (could not fetch user details).")
 
     except Exception as exc:
-        console.print("You can retry with [bold]upwork config setup[/bold] later.")
+        console.print("You can retry with [bold]upwork config login[/bold] later.")
         output.fail(f"OAuth error: {exc}")
 
 
-# ---------------------------------------------------------------------------
-# status
-# ---------------------------------------------------------------------------
+@config.command()
+def login() -> None:
+    """Authorize with Upwork, reusing the credentials already saved.
+
+    `config setup` walks every credential prompt before reaching OAuth. Once
+    those are set, re-authorizing should not mean retyping them.
+    """
+    settings = load_settings()
+    if not settings.client_id or not settings.client_secret:
+        output.fail(
+            "Upwork credentials are not configured. "
+            "Run [bold]upwork config setup[/bold] first."
+        )
+    _authorize(settings)
 
 
 @config.command()

@@ -136,8 +136,17 @@ def run_all(*, with_ai: bool = True) -> list[Check]:
 
     try:
         client = get_client()
-    except NotAuthenticated as exc:
-        checks.append(Check("Authentication", FAILED, str(exc)))
+    except NotAuthenticated:
+        # Point at the smaller command when the credentials are already
+        # there: `config setup` re-prompts for five of them before it
+        # reaches the OAuth step that is actually missing.
+        settings = load_settings()
+        remedy = (
+            "run 'upwork config login'"
+            if settings.client_id and settings.client_secret
+            else "run 'upwork config setup'"
+        )
+        checks.append(Check("Authentication", FAILED, f"no OAuth token — {remedy}"))
         return checks
 
     checks.extend(upwork_api(client))
