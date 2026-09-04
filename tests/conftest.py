@@ -151,18 +151,6 @@ def _make_rest_job(**overrides) -> dict:
     return base
 
 
-def _make_rss_entry(**overrides) -> dict:
-    """Return a minimal RSS entry for ``JobPosting.from_rss``."""
-    base = {
-        "title": "Data Analyst Needed",
-        "link": "https://www.upwork.com/jobs/~01rss789",
-        "summary": "Analyze data.<br><b>Budget</b>: $2,500<br>",
-        "published": "2025-03-01T08:00:00Z",
-    }
-    base.update(overrides)
-    return base
-
-
 def _make_job_posting(**overrides) -> JobPosting:
     """Return a minimal valid ``JobPosting`` for ``upsert_job``."""
     return JobPosting(**_make_job_dict(**overrides))
@@ -181,11 +169,6 @@ def sample_graphql_node():
 @pytest.fixture
 def sample_rest_job():
     return _make_rest_job()
-
-
-@pytest.fixture
-def sample_rss_entry():
-    return _make_rss_entry()
 
 
 # ---------------------------------------------------------------------------

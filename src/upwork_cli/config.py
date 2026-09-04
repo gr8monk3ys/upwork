@@ -360,10 +360,22 @@ class Profile:
         return "\n".join(parts)
 
 
+def _write_private(path: Path, text: str) -> None:
+    """Write a file only its owner can read, without a window where it is not.
+
+    ``write_text`` then ``chmod`` leaves the file world-readable for however
+    long the two calls take -- brief, but this holds an OAuth token. Opening
+    with the mode set means the permissions are never wrong.
+    """
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(text)
+    path.chmod(0o600)  # in case the file already existed with wider bits
+
+
 def save_auth(token: AuthToken) -> None:
     ensure_config_dir()
-    AUTH_FILE.write_text(json.dumps(token.to_dict(), indent=2))
-    AUTH_FILE.chmod(0o600)
+    _write_private(AUTH_FILE, json.dumps(token.to_dict(), indent=2))
 
 
 def load_auth() -> AuthToken | None:
@@ -384,8 +396,9 @@ def save_settings(
 ) -> None:
     """Save settings to YAML and secrets to keyring."""
     ensure_config_dir()
-    SETTINGS_FILE.write_text(yaml.dump(settings.to_dict(), default_flow_style=False))
-    SETTINGS_FILE.chmod(0o600)
+    _write_private(
+        SETTINGS_FILE, yaml.dump(settings.to_dict(), default_flow_style=False)
+    )
     if client_secret is not None:
         set_secret("client_secret", client_secret)
     if anthropic_api_key is not None:
@@ -413,8 +426,8 @@ def load_settings() -> Settings:
     settings = Settings.from_dict(data)
 
     if migrated:
-        SETTINGS_FILE.write_text(
-            yaml.dump(settings.to_dict(), default_flow_style=False)
+        _write_private(
+            SETTINGS_FILE, yaml.dump(settings.to_dict(), default_flow_style=False)
         )
         SETTINGS_FILE.chmod(0o600)
 

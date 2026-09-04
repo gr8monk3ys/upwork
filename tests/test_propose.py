@@ -150,3 +150,58 @@ class TestOpenInEditor:
 
         assert captured["cmd"][:2] == ["code", "-w"]
         assert captured["cmd"][2].endswith(".md")
+
+
+class TestHistoryOutcomes:
+    """`propose history` showed no Outcome at all, so a won proposal and an
+    unanswered one looked identical in the only listing of them."""
+
+    def _seed(self, outcome=None):
+        from upwork_cli import proposals as proposals_api
+
+        init_db()
+        stored = proposals_api.record("~job", "Build an API", "Body", "professional")
+        if outcome:
+            proposals_api.mark(stored.id, outcome)
+        return stored
+
+    def test_an_unrecorded_outcome_shows_a_dash_not_a_loss(
+        self, runner, isolated_config
+    ):
+        self._seed()
+        result = runner.invoke(cli, ["propose", "history"])
+        assert result.exit_code == 0
+        assert "Outcome" in result.output
+
+    def test_a_won_proposal_says_won(self, runner, isolated_config):
+        self._seed("won")
+        result = runner.invoke(cli, ["propose", "history"])
+        assert "won" in result.output
+
+    def test_a_lost_proposal_says_lost(self, runner, isolated_config):
+        self._seed("lost")
+        result = runner.invoke(cli, ["propose", "history"])
+        assert "lost" in result.output
+
+
+class TestBookmarkRemoval:
+    """`jobs save` had no counterpart: a bookmark could never be removed."""
+
+    def test_unsave_removes_the_bookmark(self, runner, isolated_config):
+        from upwork_cli.db import get_bookmarks, save_bookmark, upsert_job
+        from upwork_cli.models import JobPosting
+
+        init_db()
+        upsert_job(JobPosting(id="~job", title="Build an API"))
+        save_bookmark("~job", "looks good")
+        assert len(get_bookmarks()) == 1
+
+        result = runner.invoke(cli, ["jobs", "unsave", "~job"])
+        assert result.exit_code == 0
+        assert get_bookmarks() == []
+
+    def test_unsaving_something_unbookmarked_fails(self, runner, isolated_config):
+        init_db()
+        result = runner.invoke(cli, ["jobs", "unsave", "~never"])
+        assert result.exit_code == 1
+        assert "not bookmarked" in result.output

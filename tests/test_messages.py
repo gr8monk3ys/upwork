@@ -102,6 +102,7 @@ class TestReadMessages:
             runner, ["messages", "read", "r-1"], messages=RuntimeError("nope")
         )
         assert result.exit_code == 1
+        assert "nope" in result.output
 
 
 class TestSendMessage:
@@ -152,3 +153,4 @@ class TestFindRoom:
             room_by_contract=RuntimeError("gone"),
         )
         assert result.exit_code == 1
+        assert "gone" in result.output

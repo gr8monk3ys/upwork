@@ -27,7 +27,7 @@ from upwork_cli.db import (
     get_winning_proposals,
     init_db,
 )
-from upwork_cli.models import JobPosting
+from upwork_cli.models import JobPosting, Proposal
 from upwork_cli.output import console
 
 
@@ -395,6 +395,22 @@ def refine(proposal_id: int | None, feedback: str | None):
 # ---------------------------------------------------------------------------
 
 
+OUTCOME_COLOURS = {"won": "green", "lost": "red", "no_response": "yellow"}
+
+
+def _outcome_display(proposal: Proposal) -> str:
+    """How a Proposal's Outcome reads in a table.
+
+    An unrecorded Outcome shows as a dash, not as a loss: nobody has said
+    yet what became of it.
+    """
+    if proposal.outcome is None:
+        return "[dim]—[/dim]"
+    colour = OUTCOME_COLOURS.get(proposal.outcome, "white")
+    label = "won" if proposal.is_won else proposal.outcome
+    return f"[{colour}]{label}[/{colour}]"
+
+
 @propose.command()
 @click.option(
     "--limit",
@@ -409,7 +425,7 @@ def history(limit: int):
     proposals = get_proposals(limit=limit)
 
     if not proposals:
-        console.print("[dim]No proposals yet.[/dim]")
+        output.empty("No proposals yet.")
         return
 
     table = Table(title="Proposal History", show_lines=True)
@@ -417,7 +433,8 @@ def history(limit: int):
     table.add_column("Job Title", style="white", max_width=40)
     table.add_column("Tone", style="magenta")
     table.add_column("Date", style="green")
-    table.add_column("Preview", style="dim", max_width=80)
+    table.add_column("Outcome", justify="center")
+    table.add_column("Preview", style="dim", max_width=60)
 
     for proposal in proposals:
         table.add_row(
@@ -425,7 +442,8 @@ def history(limit: int):
             proposal.title,
             proposal.tone,
             proposal.created_at or "—",
-            output.truncate(proposal.content.replace("\n", " "), 80),
+            _outcome_display(proposal),
+            output.truncate(proposal.content.replace("\n", " "), 60),
         )
 
     console.print(table)
@@ -533,8 +551,7 @@ def mark(proposal_id: int, outcome: str):
     except proposals_api.ProposalsError as exc:
         output.fail(exc)
 
-    colors = {"won": "green", "lost": "red", "no_response": "yellow"}
-    color = colors.get(outcome, "white")
+    color = OUTCOME_COLOURS.get(outcome, "white")
     console.print(f"Proposal #{proposal_id} marked as [{color}]{outcome}[/{color}].")
 
 

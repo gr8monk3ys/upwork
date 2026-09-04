@@ -243,6 +243,7 @@ class TestPipelineCommands:
         init_db()
         result = runner.invoke(cli, ["pipeline", "view"])
         assert result.exit_code == 0
+        assert "No jobs in the pipeline" in result.output
 
     def test_digest_empty(self, runner, isolated_config):
         init_db()
@@ -254,3 +255,4 @@ class TestPipelineCommands:
         init_db()
         result = runner.invoke(cli, ["pipeline", "stats"])
         assert result.exit_code == 0
+        assert "No jobs in the pipeline yet" in result.output

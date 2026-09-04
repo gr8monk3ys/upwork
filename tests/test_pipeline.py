@@ -129,9 +129,12 @@ class TestPipelineCli:
         assert "moved to" in result.output
 
     def test_stats_empty(self, runner, isolated_config):
+        """An empty Pipeline reports nothing to show, not a 0% win rate."""
         init_db()
         result = runner.invoke(cli, ["pipeline", "stats"])
         assert result.exit_code == 0
+        assert "No jobs in the pipeline yet" in result.output
+        assert "Win Rate" not in result.output
 
 
 class TestPipelineHelpers:

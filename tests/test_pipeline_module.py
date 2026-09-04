@@ -115,7 +115,7 @@ class TestTimestamps:
         parsed = timestamps.parse(value)
         assert parsed == datetime(2026, 3, 8, 12, 0, tzinfo=timezone.utc)
 
-    def test_rfc_822_from_the_rss_feeds(self):
+    def test_rfc_822(self):
         parsed = timestamps.parse("Sun, 08 Mar 2026 12:00:00 GMT")
         assert parsed == datetime(2026, 3, 8, 12, 0, tzinfo=timezone.utc)
 

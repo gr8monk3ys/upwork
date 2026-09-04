@@ -1,5 +1,6 @@
 """Upwork API client wrapper supporting both GraphQL and REST endpoints."""
 
+from datetime import datetime
 from typing import Any
 
 import upwork
@@ -539,9 +540,9 @@ class UpworkClient:
         """
         clauses = []
         if from_date:
-            clauses.append(f"date >= '{from_date}'")
+            clauses.append(f"date >= '{_iso_date(from_date)}'")
         if to_date:
-            clauses.append(f"date <= '{to_date}'")
+            clauses.append(f"date <= '{_iso_date(to_date)}'")
         params = {"tq": " AND ".join(clauses)} if clauses else {}
         client = self._ensure_client()
         return fin_earnings.Api(client).get_by_freelancer(freelancer_ref, params)
@@ -553,6 +554,21 @@ class UpworkClient:
     def get_companies(self) -> dict[str, Any]:
         client = self._ensure_client()
         return companies.Api(client).get_list()
+
+
+def _iso_date(value: str) -> str:
+    """A ``YYYY-MM-DD`` date, or a refusal.
+
+    The earnings report's ``tq`` filter is a query language, and this value
+    is interpolated into it between quotes. Validating here rather than at
+    the CLI means no caller -- present or future -- can put anything but a
+    date into that string.
+    """
+    try:
+        # A calendar date for a report filter, not a moment: no zone applies.
+        return datetime.strptime(value, "%Y-%m-%d").strftime("%Y-%m-%d")  # noqa: DTZ007
+    except (ValueError, TypeError) as exc:
+        raise ValueError(f"Expected a date as YYYY-MM-DD, got {value!r}.") from exc
 
 
 class NotAuthenticated(RuntimeError):

@@ -218,7 +218,7 @@ class TestConfigResolution:
 
     def test_require_api_key_passes_when_configured(self, isolated_config, monkeypatch):
         monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
-        require_api_key()  # does not raise
+        assert require_api_key() is None  # returns, rather than raising
 
 
 class TestCompleteJson:
