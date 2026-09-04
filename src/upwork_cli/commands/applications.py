@@ -26,12 +26,6 @@ APPLICATION_STATUSES = {
     "withdrawn": "Withdrawn",
 }
 
-APPLICATION_SORT_FIELDS = {
-    "created": "CreatedDateTime",
-    "modified": "ModifiedDateTime",
-    "status": "StatusChangedDateTime",
-}
-
 OFFER_STATES = {
     "pending": "Pending",
     "active": "Active",
@@ -113,7 +107,7 @@ def applications(ctx: click.Context) -> None:
 @click.option(
     "--sort",
     "sort_name",
-    type=click.Choice(list(APPLICATION_SORT_FIELDS.keys()), case_sensitive=False),
+    type=click.Choice(list(applications_api.SORT_FIELDS), case_sensitive=False),
     default="modified",
     show_default=True,
     help="Sort field.",
@@ -134,11 +128,9 @@ def list_applications(status: str, sort_name: str, limit: int) -> None:
         if normalized_status == "all"
         else [APPLICATION_STATUSES[normalized_status]]
     )
-    sort_field = APPLICATION_SORT_FIELDS[sort_name.lower()]
-
     try:
         found = applications_api.list_applications(
-            client, statuses=statuses, limit=limit, sort_field=sort_field
+            client, statuses=statuses, limit=limit, sort=sort_name.lower()
         )
     except applications_api.ApplicationsError as exc:
         output.fail(exc)

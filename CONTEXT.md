@@ -18,11 +18,17 @@ until it has been asked for, and absent again if the request failed — a Job
 with no Score has never been successfully judged, never "scored zero".
 _Avoid_: rating, rank, match score
 
-**Scored Job**:
-A Job together with its Score, if it has one. The pairing the cache returns,
-distinct from a Job on its own because a Job read straight from the API has no
-Score and never will until it is judged.
-_Avoid_: job result, ranked job, job with score
+**Score Result**:
+A Job together with the outcome of one attempt to score it — a Score, or the
+error that stopped it. What a scoring *run* returns, not what the cache
+returns: the cache cannot say why an attempt failed, so it cannot produce one.
+Successes are persisted, failures deliberately are not.
+_Avoid_: scored job, job result, ranked job, job with score
+
+A persisted Score currently has no typed way back out of the cache. It is
+written by a scoring run and read again only as an untyped column inside
+`pipeline view`; the reasoning saved alongside it is never read at all. Any
+work on the Pipeline should close that gap rather than route around it.
 
 **Profile**:
 The freelancer's own title, overview, skills, rate and portfolio. The thing a

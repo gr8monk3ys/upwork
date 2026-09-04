@@ -29,18 +29,33 @@ def _nodes(payload: dict[str, Any] | None) -> list[dict[str, Any]]:
     ]
 
 
+#: Domain sort name -> the Upwork enum that asks for it. The mapping lives
+#: behind this seam so callers name the ordering they want and never the
+#: transport's spelling of it.
+SORT_FIELDS = {
+    "created": "CreatedDateTime",
+    "modified": "ModifiedDateTime",
+    "status": "StatusChangedDateTime",
+}
+
+
 def list_applications(
     client: UpworkClient,
     statuses: list[str],
     limit: int = 20,
-    sort_field: str = "ModifiedDateTime",
+    sort: str = "modified",
 ) -> list[Application]:
     """Applications across one or more statuses, newest first, deduplicated.
 
     Upwork's API filters by a single status, so several calls are made and
     their results merged: the same application can come back under more than
     one status.
+
+    *sort* is a domain name from :data:`SORT_FIELDS`, and orders both the
+    request and the merged result. Asking the API for one ordering and then
+    sorting the merge by another silently ignored ``status``.
     """
+    sort_field = SORT_FIELDS.get(sort, SORT_FIELDS["modified"])
     found: dict[str, Application] = {}
     for status in statuses:
         try:
@@ -60,8 +75,7 @@ def list_applications(
             if application.id and application.id not in found:
                 found[application.id] = application
 
-    preferred = "created" if sort_field == "CreatedDateTime" else "modified"
-    ordered = sorted(found.values(), key=lambda a: a.sort_key(preferred), reverse=True)
+    ordered = sorted(found.values(), key=lambda a: a.sort_key(sort), reverse=True)
     return ordered[:limit]
 
 

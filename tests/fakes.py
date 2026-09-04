@@ -238,6 +238,7 @@ def application_node(
     cover_letter: str = "I would be a great fit.",
     created: str = "2026-09-01T10:00:00Z",
     modified: str = "2026-09-02T10:00:00Z",
+    status_changed: str | None = None,
 ) -> dict[str, Any]:
     """One application as the GraphQL API returns it."""
     return {
@@ -247,7 +248,9 @@ def application_node(
         "auditDetails": {
             "createdDateTime": created,
             "modifiedDateTime": modified,
-            "statusChangedDateTime": modified,
+            "statusChangedDateTime": (
+                modified if status_changed is None else status_changed
+            ),
         },
         "marketplaceJobPosting": {
             "id": "job-1",

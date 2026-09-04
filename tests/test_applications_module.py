@@ -57,10 +57,32 @@ class TestListApplications:
                 ),
             )
         )
-        found = applications.list_applications(
-            client, ["Submitted"], sort_field="CreatedDateTime"
-        )
+        found = applications.list_applications(client, ["Submitted"], sort="created")
         assert [a.id for a in found] == ["a", "b"]
+
+    def test_sort_status_orders_by_status_change(self):
+        """``--sort status`` used to fall through to modified_at silently."""
+        client = FakeUpworkClient(
+            applications=connection(
+                application_node(
+                    "stale",
+                    modified="2026-09-09T00:00:00Z",
+                    status_changed="2026-01-01T00:00:00Z",
+                ),
+                application_node(
+                    "fresh",
+                    modified="2026-01-01T00:00:00Z",
+                    status_changed="2026-09-09T00:00:00Z",
+                ),
+            )
+        )
+        found = applications.list_applications(client, ["Submitted"], sort="status")
+        assert [a.id for a in found] == ["fresh", "stale"]
+
+    def test_sort_name_reaches_the_api_as_its_enum(self):
+        client = FakeUpworkClient(applications=connection(application_node("a")))
+        applications.list_applications(client, ["Submitted"], sort="status")
+        assert client.application_queries[0]["sort_field"] == "StatusChangedDateTime"
 
     def test_limit_truncates(self):
         client = FakeUpworkClient(

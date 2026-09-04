@@ -221,14 +221,12 @@ def _score_alert_jobs(
     min_score: int,
     has_scoring: bool,
     profile_summary: str,
-    api_key: str,
-    model: str = "",
 ) -> list[ScoreResult]:
     """Score new jobs when possible and return only alert-worthy ones."""
     if not has_scoring:
         return [ScoreResult(job=job) for job in new_jobs]
 
-    results = score_jobs(new_jobs, profile_summary, api_key, model=model or None)
+    results = score_jobs(new_jobs, profile_summary)
     return [r for r in results if r.score is not None and r.score >= min_score]
 
 
