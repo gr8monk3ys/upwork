@@ -35,6 +35,8 @@ class FakeUpworkClient:
         offers_for_application: Any = None,
         search_results: Any = None,
         job_detail: Any = None,
+        engagements: Any = None,
+        engagement: Any = None,
     ) -> None:
         self.is_authenticated = authenticated
         self._companies = (
@@ -65,6 +67,11 @@ class FakeUpworkClient:
             else {"data": {"marketplaceJobPostings": {"edges": []}}}
         )
         self._job_detail = job_detail if job_detail is not None else {}
+        self._engagements = (
+            engagements if engagements is not None else {"engagement": []}
+        )
+        self._engagement = engagement if engagement is not None else {}
+        self.submitted: list[Any] = []
         self.earnings_params: list[Any] = []
         self.searches: list[tuple[str, int]] = []
         self.application_queries: list[Any] = []
@@ -118,6 +125,16 @@ class FakeUpworkClient:
         return self._answer(self._job_detail)
 
     # --- the applications and offers slice of the interface ---
+
+    def get_engagements(self, params: dict[str, Any] | None = None) -> Any:
+        return self._answer(self._engagements)
+
+    def get_engagement(self, reference: str) -> Any:
+        return self._answer(self._engagement)
+
+    def submit_work(self, params: dict[str, Any]) -> Any:
+        self.submitted.append(params)
+        return self._answer({"status": "ok"})
 
     def get_applications(self, params: dict[str, Any] | None = None) -> Any:
         self.application_queries.append(params)
@@ -323,3 +340,39 @@ def job_node(
         "createdDateTime": created,
         "client": {"location": {"country": country}, "verificationStatus": "VERIFIED"},
     }
+
+
+def engagement_node(
+    reference: str = "eng-1",
+    *,
+    title: str = "Build an API",
+    status: str = "active",
+    client: str = "Acme Inc",
+    hourly_rate: float | None = 85.0,
+    total_charge: float | None = 4250.0,
+    milestones: Any = None,
+) -> dict[str, Any]:
+    """One engagement as the REST API returns it."""
+    node: dict[str, Any] = {
+        "reference": reference,
+        "job": {"title": title},
+        "status": status,
+        "created_time": "2026-01-15T10:00:00Z",
+        "buyer": {"company_name": client},
+        "hourly_charge_rate": {"amount": hourly_rate},
+        "hours_per_week": 20,
+        "total_charge": {"amount": total_charge},
+    }
+    if milestones is not None:
+        node["milestones"] = milestones
+    return node
+
+
+def milestone_node(
+    description: str = "Phase one",
+    *,
+    amount: float = 1000.0,
+    status: str = "funded",
+) -> dict[str, Any]:
+    """One fixed-price milestone as the REST API returns it."""
+    return {"description": description, "amount": amount, "status": status}

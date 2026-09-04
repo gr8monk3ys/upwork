@@ -7,10 +7,11 @@ import click
 from rich.panel import Panel
 from rich.table import Table
 
+from upwork_cli import contracts as contracts_api
 from upwork_cli import earnings as earnings_api
 from upwork_cli import output
 from upwork_cli.client import NotAuthenticated, UpworkClient, get_client
-from upwork_cli.models import Contract, EarningRow
+from upwork_cli.models import EarningRow
 from upwork_cli.output import console
 
 
@@ -20,16 +21,6 @@ def _get_client() -> UpworkClient:
         return get_client()
     except NotAuthenticated:
         output.fail("Not authenticated. Run 'upwork config setup' first.")
-
-
-def _safe_float(value, default: float = 0.0) -> float:
-    """Safely convert a value to float."""
-    if value is None:
-        return default
-    try:
-        return float(value)
-    except (ValueError, TypeError):
-        return default
 
 
 # ---------------------------------------------------------------------------
@@ -160,6 +151,19 @@ def export(output_file: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _status_display(status: str) -> str:
+    """Colour a contract status for the terminal."""
+    colours = {
+        "active": "green",
+        "paused": "yellow",
+        "suspended": "yellow",
+        "ended": "red",
+        "closed": "red",
+    }
+    colour = colours.get((status or "").lower())
+    return f"[{colour}]{status}[/{colour}]" if colour else status
+
+
 @click.group("contracts", invoke_without_command=True)
 @click.pass_context
 def contracts(ctx: click.Context) -> None:
@@ -171,24 +175,12 @@ def contracts(ctx: click.Context) -> None:
 @contracts.command("list")
 def contracts_list() -> None:
     """List active contracts."""
-    client = _get_client()
-
     try:
-        data = client.get_engagements()
-    except Exception as exc:
-        output.fail(f"Failed to fetch contracts: {exc}")
+        found = contracts_api.list_contracts(_get_client())
+    except contracts_api.ContractsError as exc:
+        output.fail(exc)
 
-    engagements = (
-        data.get("engagements", {}).get("engagement", [])
-        or data.get("engagement", [])
-        or data.get("engagements", [])
-        or []
-    )
-    # Normalise to a list when API returns a single dict.
-    if isinstance(engagements, dict):
-        engagements = [engagements]
-
-    if not engagements:
+    if not found:
         output.empty("No active contracts found.")
         return
 
@@ -200,19 +192,8 @@ def contracts_list() -> None:
     rich_table.add_column("Hours", justify="right")
     rich_table.add_column("Total", justify="right")
 
-    for eng in engagements:
-        contract = Contract.from_api(eng)
-
-        status_str = contract.status or "unknown"
-        status_lower = status_str.lower()
-        if status_lower == "active":
-            status_display = f"[green]{status_str}[/green]"
-        elif status_lower in ("paused", "suspended"):
-            status_display = f"[yellow]{status_str}[/yellow]"
-        elif status_lower in ("ended", "closed"):
-            status_display = f"[red]{status_str}[/red]"
-        else:
-            status_display = status_str
+    for contract in found:
+        status_display = _status_display(contract.status or "unknown")
 
         rate = (
             output.money(contract.hourly_rate)
@@ -244,25 +225,13 @@ def contracts_list() -> None:
 @click.argument("reference")
 def contracts_detail(reference: str) -> None:
     """Show detailed information for a specific contract."""
-    client = _get_client()
-
     try:
-        data = client.get_engagement(reference)
-    except Exception as exc:
-        output.fail(f"Failed to fetch contract detail: {exc}")
+        detail = contracts_api.get_contract(_get_client(), reference)
+    except contracts_api.ContractsError as exc:
+        output.fail(exc)
 
-    eng = data.get("engagement", data)
-    contract = Contract.from_api(eng)
-
-    status_lower = (contract.status or "").lower()
-    if status_lower == "active":
-        status_display = f"[green]{contract.status}[/green]"
-    elif status_lower in ("paused", "suspended"):
-        status_display = f"[yellow]{contract.status}[/yellow]"
-    elif status_lower in ("ended", "closed"):
-        status_display = f"[red]{contract.status}[/red]"
-    else:
-        status_display = contract.status
+    contract = detail.contract
+    status_display = _status_display(contract.status)
 
     lines = [
         f"[bold]Title:[/bold]       {contract.title}",
@@ -280,21 +249,14 @@ def contracts_detail(reference: str) -> None:
             f"[bold]Total Earned:[/bold] {output.money(contract.total_charge)}"
         )
 
-    # Milestones (if available in the response).
-    milestones = eng.get("milestones", eng.get("fixed_price_milestones", []))
-    if isinstance(milestones, dict):
-        milestones = milestones.get("milestone", [])
-    if isinstance(milestones, dict):
-        milestones = [milestones]
-
-    if milestones:
+    if detail.milestones:
         lines.append("")
         lines.append("[bold underline]Milestones[/bold underline]")
-        for ms in milestones:
-            ms_desc = ms.get("description", ms.get("title", "Untitled"))
-            ms_amount = _safe_float(ms.get("amount", 0))
-            ms_status = ms.get("status", ms.get("state", ""))
-            lines.append(f"  - {ms_desc}: {output.money(ms_amount)} [{ms_status}]")
+        for milestone in detail.milestones:
+            lines.append(
+                f"  - {milestone.description}: "
+                f"{output.money(milestone.amount)} [{milestone.status}]"
+            )
 
     console.print(
         Panel(
@@ -314,12 +276,9 @@ def contracts_submit(reference: str, message: str) -> None:
 
     # Fetch the contract first so the user can confirm.
     try:
-        data = client.get_engagement(reference)
-    except Exception as exc:
-        output.fail(f"Failed to fetch contract: {exc}")
-
-    eng = data.get("engagement", data)
-    contract = Contract.from_api(eng)
+        contract = contracts_api.get_contract(client, reference).contract
+    except contracts_api.ContractsError as exc:
+        output.fail(exc)
 
     console.print(
         Panel(
@@ -335,12 +294,8 @@ def contracts_submit(reference: str, message: str) -> None:
         output.warn("Submission cancelled.")
         return
 
-    params: dict = {"engagement__reference": reference}
-    if message:
-        params["comments"] = message
-
     try:
-        client.submit_work(params)
-        console.print("[green]Work submitted successfully![/green]")
-    except Exception as exc:
-        output.fail(f"Failed to submit work: {exc}")
+        contracts_api.submit_work(client, reference, message)
+    except contracts_api.ContractsError as exc:
+        output.fail(exc)
+    console.print("[green]Work submitted successfully![/green]")

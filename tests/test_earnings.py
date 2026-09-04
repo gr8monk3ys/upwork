@@ -1,6 +1,6 @@
 """Tests for the earnings and contracts commands."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from click.testing import CliRunner
@@ -10,10 +10,13 @@ from tests.fakes import (
     earning_cells,
     earning_flat,
     earnings_payload,
+    engagement_node,
+    milestone_node,
 )
 from upwork_cli.cli import cli
 from upwork_cli.client import NotAuthenticated
 from upwork_cli.db import init_db
+from upwork_cli.models import Milestone
 
 
 @pytest.fixture
@@ -28,49 +31,34 @@ def _run(runner, args, client=None, **fake_kwargs):
         return runner.invoke(cli, args)
 
 
-def _make_mock_client(authenticated=True):
-    """Create a mock UpworkClient with basic stubs."""
-    client = MagicMock()
-    client.is_authenticated = authenticated
-    client.get_user_info.return_value = {"info": {"ref": "~freelancer123"}}
-    return client
-
-
 # ---------------------------------------------------------------------------
 # Helper tests
 # ---------------------------------------------------------------------------
 
 
-class TestSafeFloat:
-    def test_none_returns_default(self):
-        from upwork_cli.commands.earnings import _safe_float
+class TestMilestoneAmounts:
+    """`_safe_float` was a second copy of `models._to_float`, used once.
 
-        assert _safe_float(None) == 0.0
+    Its one caller was the milestone amount, which `Milestone.from_api`
+    parses now; these keep the same coercions covered where they live.
+    """
 
-    def test_valid_number(self):
-        from upwork_cli.commands.earnings import _safe_float
+    def test_missing_amount_reads_as_zero(self):
+        assert Milestone.from_api({"description": "Phase one"}).amount == 0.0
 
-        assert _safe_float("42.5") == 42.5
+    def test_string_amount_is_parsed(self):
+        assert Milestone.from_api({"amount": "42.5"}).amount == 42.5
 
-    def test_integer_input(self):
-        from upwork_cli.commands.earnings import _safe_float
+    def test_unparseable_amount_reads_as_zero(self):
+        assert Milestone.from_api({"amount": "not_a_number"}).amount == 0.0
+        assert Milestone.from_api({"amount": [1, 2, 3]}).amount == 0.0
 
-        assert _safe_float(10) == 10.0
+    def test_description_falls_back_through_title(self):
+        assert Milestone.from_api({"title": "Phase two"}).description == "Phase two"
+        assert Milestone.from_api({}).description == "Untitled"
 
-    def test_value_error(self):
-        from upwork_cli.commands.earnings import _safe_float
-
-        assert _safe_float("not_a_number") == 0.0
-
-    def test_type_error(self):
-        from upwork_cli.commands.earnings import _safe_float
-
-        assert _safe_float([1, 2, 3]) == 0.0
-
-    def test_custom_default(self):
-        from upwork_cli.commands.earnings import _safe_float
-
-        assert _safe_float(None, default=-1.0) == -1.0
+    def test_status_falls_back_through_state(self):
+        assert Milestone.from_api({"state": "funded"}).status == "funded"
 
 
 class TestSummaryCommand:
@@ -194,120 +182,118 @@ class TestExportCommand:
 
 
 class TestContractsCommands:
-    @patch("upwork_cli.commands.earnings.get_client")
-    def test_list_happy_path(self, MockClient, runner, isolated_config):
-        init_db()
-        client = _make_mock_client()
-        client.get_engagements.return_value = {
-            "engagements": {
-                "engagement": [
-                    {
-                        "job": {"title": "API Development"},
-                        "buyer": {"company_name": "Acme Corp"},
-                        "status": "active",
-                        "hourly_charge_rate": {"amount": 75.00},
-                        "hours_per_week": 120.5,
-                        "total_charge": {"amount": 9037.50},
-                        "reference": "~eng001",
-                        "created_time": "2025-01-01",
-                    }
-                ]
-            }
-        }
-        MockClient.return_value = client
-        result = runner.invoke(cli, ["contracts", "list"])
-        assert result.exit_code == 0
-        assert "Contracts" in result.output
+    """Driven through FakeUpworkClient like every other slice.
 
-    @patch("upwork_cli.commands.earnings.get_client")
-    def test_list_empty(self, MockClient, runner, isolated_config):
+    These used to build a MagicMock, because the fake had no
+    `get_engagements` / `get_engagement` / `submit_work` -- the contracts
+    group was the one part of the Upwork seam it did not cover.
+    """
+
+    def test_list_renders_contracts(self, runner, isolated_config):
         init_db()
-        client = _make_mock_client()
-        client.get_engagements.return_value = {}
-        MockClient.return_value = client
-        result = runner.invoke(cli, ["contracts", "list"])
+        result = _run(
+            runner,
+            ["contracts", "list"],
+            engagements={
+                "engagements": {
+                    "engagement": [engagement_node(title="API Development")]
+                }
+            },
+        )
+        assert result.exit_code == 0
+        assert "API Development" in result.output
+        assert "Acme Inc" in result.output
+
+    def test_list_accepts_a_bare_dict_for_one_contract(self, runner, isolated_config):
+        """Upwork returns one engagement unwrapped rather than in a list."""
+        init_db()
+        result = _run(
+            runner,
+            ["contracts", "list"],
+            engagements={"engagement": engagement_node(title="Solo Contract")},
+        )
+        assert result.exit_code == 0
+        assert "Solo Contract" in result.output
+
+    def test_list_empty(self, runner, isolated_config):
+        init_db()
+        result = _run(runner, ["contracts", "list"], engagements={})
         assert result.exit_code == 0
         assert "No active contracts" in result.output
 
-    @patch("upwork_cli.commands.earnings.get_client")
-    def test_detail_displays_info(self, MockClient, runner, isolated_config):
+    def test_list_api_failure_exits_nonzero(self, runner, isolated_config):
         init_db()
-        client = _make_mock_client()
-        client.get_engagement.return_value = {
-            "engagement": {
-                "job": {"title": "Backend Work"},
-                "buyer": {"company_name": "ClientCo"},
-                "status": "active",
-                "hourly_charge_rate": {"amount": 100.00},
-                "hours_per_week": 50.0,
-                "total_charge": {"amount": 5000.00},
-                "reference": "~eng002",
-                "created_time": "2025-02-01",
-            }
-        }
-        MockClient.return_value = client
-        result = runner.invoke(cli, ["contracts", "detail", "~eng002"])
-        assert result.exit_code == 0
-        assert "Contract" in result.output
+        result = _run(
+            runner, ["contracts", "list"], engagements=RuntimeError("upstream 503")
+        )
+        assert result.exit_code == 1
+        assert "Failed to fetch contracts" in result.output
 
-    @patch("upwork_cli.commands.earnings.get_client")
-    def test_detail_with_status_colors(self, MockClient, runner, isolated_config):
+    def test_detail_displays_info(self, runner, isolated_config):
         init_db()
-        client = _make_mock_client()
-        client.get_engagement.return_value = {
-            "engagement": {
-                "job": {"title": "Old Project"},
-                "buyer": {"company_name": "OldClient"},
-                "status": "ended",
-                "reference": "~eng003",
-                "created_time": "2024-06-01",
-            }
-        }
-        MockClient.return_value = client
-        result = runner.invoke(cli, ["contracts", "detail", "~eng003"])
+        result = _run(
+            runner,
+            ["contracts", "detail", "eng-2"],
+            engagement={"engagement": engagement_node(title="Backend Work")},
+        )
         assert result.exit_code == 0
+        assert "Backend Work" in result.output
 
-    @patch("upwork_cli.commands.earnings.get_client")
-    def test_submit_confirm(self, MockClient, runner, isolated_config):
+    def test_detail_lists_milestones(self, runner, isolated_config):
         init_db()
-        client = _make_mock_client()
-        client.get_engagement.return_value = {
-            "engagement": {
-                "job": {"title": "Milestone Project"},
-                "buyer": {"company_name": "MilestoneCo"},
-                "status": "active",
-                "reference": "~eng004",
-                "created_time": "2025-01-01",
-            }
-        }
-        client.submit_work.return_value = {}
-        MockClient.return_value = client
-        result = runner.invoke(cli, ["contracts", "submit", "~eng004"], input="y\n")
+        result = _run(
+            runner,
+            ["contracts", "detail", "eng-2"],
+            engagement={
+                "engagement": engagement_node(
+                    milestones=[milestone_node("Phase one", amount=1500.0)]
+                )
+            },
+        )
         assert result.exit_code == 0
+        assert "Phase one" in result.output
+        assert "1,500.00" in result.output
+
+    def test_detail_handles_a_payload_with_no_envelope(self, runner, isolated_config):
+        init_db()
+        result = _run(
+            runner,
+            ["contracts", "detail", "eng-2"],
+            engagement=engagement_node(title="Unwrapped"),
+        )
+        assert result.exit_code == 0
+        assert "Unwrapped" in result.output
+
+    def test_submit_confirm(self, runner, isolated_config):
+        init_db()
+        client = FakeUpworkClient(engagement={"engagement": engagement_node()})
+        with patch("upwork_cli.commands.earnings.get_client", return_value=client):
+            result = runner.invoke(
+                cli,
+                ["contracts", "submit", "eng-1", "--message", "done"],
+                input="y\n",
+            )
+        assert result.exit_code == 0, result.output
         assert "submitted successfully" in result.output
+        assert client.submitted == [
+            {"engagement__reference": "eng-1", "comments": "done"}
+        ]
 
-    @patch("upwork_cli.commands.earnings.get_client")
-    def test_submit_cancel(self, MockClient, runner, isolated_config):
+    def test_submit_cancel_sends_nothing(self, runner, isolated_config):
         init_db()
-        client = _make_mock_client()
-        client.get_engagement.return_value = {
-            "engagement": {
-                "job": {"title": "Milestone Project"},
-                "buyer": {"company_name": "MilestoneCo"},
-                "status": "active",
-                "reference": "~eng005",
-                "created_time": "2025-01-01",
-            }
-        }
-        MockClient.return_value = client
-        result = runner.invoke(cli, ["contracts", "submit", "~eng005"], input="n\n")
+        client = FakeUpworkClient(engagement={"engagement": engagement_node()})
+        with patch("upwork_cli.commands.earnings.get_client", return_value=client):
+            result = runner.invoke(cli, ["contracts", "submit", "eng-1"], input="n\n")
         assert result.exit_code == 0
         assert "cancelled" in result.output
+        assert client.submitted == []
 
-    @patch("upwork_cli.commands.earnings.get_client")
-    def test_not_authenticated(self, MockClient, runner, isolated_config):
+    def test_not_authenticated(self, runner, isolated_config):
         init_db()
-        MockClient.side_effect = NotAuthenticated("not authenticated")
-        result = runner.invoke(cli, ["contracts", "list"])
+        with patch(
+            "upwork_cli.commands.earnings.get_client",
+            side_effect=NotAuthenticated("nope"),
+        ):
+            result = runner.invoke(cli, ["contracts", "list"])
         assert result.exit_code != 0
         assert "Not authenticated" in result.output

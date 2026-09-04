@@ -478,6 +478,36 @@ class Contract:
 
 
 @dataclass
+class Milestone:
+    """One funded step of a fixed-price Contract."""
+
+    description: str = "Untitled"
+    amount: float | None = None
+    status: str = ""
+
+    @classmethod
+    def from_api(cls, data: dict[str, Any]) -> "Milestone":
+        return cls(
+            description=data.get("description") or data.get("title") or "Untitled",
+            amount=_to_float(data.get("amount")),
+            status=data.get("status") or data.get("state") or "",
+        )
+
+
+@dataclass
+class ContractDetail:
+    """A Contract together with the Milestones its detail payload carried.
+
+    Milestones get their own pairing rather than a field on ``Contract``
+    because the engagements *list* cannot answer what a Contract's milestones
+    are; an empty list there would be a lie rather than an absence.
+    """
+
+    contract: Contract
+    milestones: list["Milestone"] = field(default_factory=list)
+
+
+@dataclass
 class EarningRow:
     """One line of an earnings report.
 
