@@ -48,7 +48,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[test]"
       - name: Test
-        run: pytest -q --cov=upwork_cli --cov-report=term-missing --cov-fail-under=90
+        run: pytest -q --tb=short --cov=upwork_cli --cov-report=term-missing --cov-fail-under=90
 
   locked:
     name: locked install
