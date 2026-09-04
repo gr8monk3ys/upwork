@@ -42,24 +42,36 @@ A Python command-line toolkit for managing your Upwork freelancing workflow from
 
 ### Installation
 
+**To use the tool**, install it as a standalone command:
+
 ```bash
-# Clone the repository
 git clone https://github.com/gr8monk3ys/upwork.git
 cd upwork
+uv tool install .
+```
 
-# Preferred: create the locked dev environment with uv
-uv sync --extra test
+That puts `upwork` on your PATH (usually `~/.local/bin`). Re-run it after
+pulling changes, or use `uv tool install --editable .` to have it track your
+working copy.
 
-# Optional: enter the environment for direct commands
-source .venv/bin/activate
+**To work on the tool**, create the locked dev environment instead:
 
-# Fallback without uv (when pip is available in your venv)
+```bash
+uv sync --extra test          # exact versions from uv.lock
+.venv/bin/pytest              # or `source .venv/bin/activate` first
+```
+
+Without `uv`:
+
+```bash
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install -e ".[test]"
 ```
 
-After installation the `upwork` command is available on your PATH.
+`uv sync` and `pip install -e` put `upwork` in `.venv/bin`, **not** on your
+PATH — you need the venv activated, or the full path `.venv/bin/upwork`.
+Only `uv tool install` gives you a bare `upwork` command.
 
 ### Quick Start
 
