@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 import upwork
 from upwork.routers import auth as upwork_auth
@@ -275,6 +276,14 @@ class UpworkClient:
         return url
 
     def complete_auth(self, callback_url: str) -> AuthToken:
+        """Exchange an authorization callback for a token.
+
+        Raises:
+            ValueError: when the URL is not a callback -- most often because
+                the authorize URL was pasted back instead of the one the
+                browser landed on afterwards.
+        """
+        check_callback_url(callback_url)
         client = self._ensure_client()
         token_data = client.get_access_token(callback_url)
         token = AuthToken(
@@ -569,6 +578,45 @@ def _iso_date(value: str) -> str:
         return datetime.strptime(value, "%Y-%m-%d").strftime("%Y-%m-%d")  # noqa: DTZ007
     except (ValueError, TypeError) as exc:
         raise ValueError(f"Expected a date as YYYY-MM-DD, got {value!r}.") from exc
+
+
+def check_callback_url(url: str) -> None:
+    """Refuse a URL that cannot possibly carry an authorization code.
+
+    The two mistakes worth naming separately: pasting the authorize URL back
+    (it has `response_type=code`, not `code=`), and copying the address bar
+    before the redirect happened. Both used to surface as Upwork's own
+    "(missing_code) Missing code parameter in response", which says what is
+    absent but not what to do.
+    """
+    text = (url or "").strip()
+    if not text:
+        raise ValueError("No URL given.")
+
+    query = parse_qs(urlparse(text).query)
+    if "code" in query:
+        return
+
+    if "response_type" in query or "/oauth2/authorize" in text:
+        raise ValueError(
+            "That is the authorization URL, not the callback URL.\n"
+            "Authorize in the browser first. It will then try to load "
+            "localhost:8080 and fail to connect -- that failure is expected. "
+            "Copy the URL out of the address bar at that point: it looks like "
+            "https://localhost:8080/callback?code=...&state=..."
+        )
+
+    if "error" in query:
+        raise ValueError(
+            f"Upwork refused the authorization: {query['error'][0]}. "
+            "Run the command again and accept the request."
+        )
+
+    raise ValueError(
+        "That URL has no `code=` parameter, so it is not the callback.\n"
+        "The one you want looks like "
+        "https://localhost:8080/callback?code=...&state=..."
+    )
 
 
 class NotAuthenticated(RuntimeError):
