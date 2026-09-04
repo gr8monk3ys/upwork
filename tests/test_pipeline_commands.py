@@ -84,7 +84,9 @@ class TestMove:
     def test_an_unknown_stage_is_refused_by_click(self, runner, isolated_config):
         init_db()
         result = runner.invoke(cli, ["pipeline", "move", "~a", "shortlisted"])
-        assert result.exit_code != 0
+        assert result.exit_code == 2  # Click usage error, before any db write
+        assert "shortlisted" in result.output
+        assert pipeline_api.entries() == []
 
 
 class TestStats:

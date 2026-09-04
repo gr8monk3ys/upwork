@@ -10,20 +10,23 @@ requires-python = ">=3.10"
 # Upper bounds are deliberate. Every one of these is a hard dependency of a
 # tool that talks to two external APIs; an unbounded `>=` means the next
 # major of `anthropic` or `python-upwork-oauth2` installs itself into a
-# working checkout and breaks it. Raise a bound when you have run the suite
-# against the new major, not before.
+# working checkout and breaks it.
+#
+# Raise a bound when you have run the suite against the new major, not
+# before. rich 15, anthropic 1 and pytest 9 were each installed into a clean
+# venv and the full suite run against them before their bounds moved.
 dependencies = [
     "python-upwork-oauth2>=3.2.0,<4",
     "click>=8.1,<9",
-    "rich>=13.0,<15",
-    "anthropic>=0.40.0,<1",
+    "rich>=13.0,<16",
+    "anthropic>=0.40.0,<2",
     "pyyaml>=6.0,<7",
     "keyring>=25.0,<26",
 ]
 
 [project.optional-dependencies]
 test = [
-    "pytest>=7.0,<9",
+    "pytest>=7.0,<10",
     "pytest-mock>=3.10,<4",
     "pytest-cov>=4.0,<8",
     "pre-commit>=4.0,<5",
