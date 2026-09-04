@@ -93,12 +93,10 @@ class FakeUpworkClient:
     def get_user_info(self) -> Any:
         return self._answer(self._user_info)
 
-    def get_rooms(self, company: str, params: dict[str, Any] | None = None) -> Any:
+    def get_rooms(self, company: str, limit: int = 20) -> Any:
         return self._answer(self._rooms)
 
-    def get_room_messages(
-        self, company: str, room_id: str, params: dict[str, Any] | None = None
-    ) -> Any:
+    def get_room_messages(self, company: str, room_id: str, limit: int = 50) -> Any:
         return self._answer(self._messages)
 
     def get_room_by_contract(
@@ -109,9 +107,12 @@ class FakeUpworkClient:
     # --- the earnings slice of the interface ---
 
     def get_earnings(
-        self, freelancer_ref: str, params: dict[str, Any] | None = None
+        self,
+        freelancer_ref: str,
+        from_date: str | None = None,
+        to_date: str | None = None,
     ) -> Any:
-        self.earnings_params.append(params)
+        self.earnings_params.append((from_date, to_date))
         return self._answer(self._earnings)
 
     # --- the jobs slice of the interface ---
@@ -137,7 +138,7 @@ class FakeUpworkClient:
         self.submitted.append(params)
         return self._answer({"status": "ok"})
 
-    def get_applications(self, params: dict[str, Any] | None = None) -> Any:
+    def get_applications(self, **params: Any) -> Any:
         self.application_queries.append(params)
         return self._answer(self._applications)
 
@@ -147,7 +148,7 @@ class FakeUpworkClient:
     def get_offers_for_application(self, reference: str, limit: int = 10) -> Any:
         return self._answer(self._offers_for_application)
 
-    def get_offers(self, params: dict[str, Any] | None = None) -> Any:
+    def get_offers(self, **params: Any) -> Any:
         self.offer_queries.append(params)
         return self._answer(self._offers)
 

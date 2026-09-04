@@ -72,7 +72,7 @@ def _messages_in(
     client: UpworkClient, company: str, room_id: str, limit: int
 ) -> list[Message]:
     try:
-        result = client.get_room_messages(company, room_id, {"paging": f"0;{limit}"})
+        result = client.get_room_messages(company, room_id, limit)
     except Exception as exc:
         raise MessagingError(f"Failed to fetch messages: {exc}") from exc
 
@@ -86,7 +86,7 @@ def list_rooms(client: UpworkClient, limit: int = 20) -> list[Room]:
     """Recent conversations, most recently updated first."""
     company = _company(client)
     try:
-        result = client.get_rooms(company, {"paging": f"0;{limit}"})
+        result = client.get_rooms(company, limit)
     except Exception as exc:
         raise MessagingError(f"Failed to fetch rooms: {exc}") from exc
 

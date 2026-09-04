@@ -29,16 +29,6 @@ def _freelancer_ref(client: UpworkClient) -> str:
     return str(ref)
 
 
-def _date_query(from_date: str | None, to_date: str | None) -> dict[str, Any] | None:
-    """Build the report's date filter, or None when unfiltered."""
-    clauses = []
-    if from_date:
-        clauses.append(f"date >= '{from_date}'")
-    if to_date:
-        clauses.append(f"date <= '{to_date}'")
-    return {"tq": " AND ".join(clauses)} if clauses else None
-
-
 def _rows_in(payload: dict[str, Any]) -> list[Any]:
     """The report rows, wherever this payload happens to keep them."""
     table = payload.get("table") or {}
@@ -78,7 +68,7 @@ def fetch(
     """
     ref = _freelancer_ref(client)
     try:
-        payload = client.get_earnings(ref, _date_query(from_date, to_date))
+        payload = client.get_earnings(ref, from_date, to_date)
     except Exception as exc:
         raise EarningsError(f"Failed to fetch earnings: {exc}") from exc
 

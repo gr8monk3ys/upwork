@@ -136,9 +136,7 @@ class TestReportCommand:
             ["earnings", "report", "--from", "2026-01-01", "--to", "2026-06-30"],
             client=client,
         )
-        assert client.earnings_params == [
-            {"tq": "date >= '2026-01-01' AND date <= '2026-06-30'"}
-        ]
+        assert client.earnings_params == [("2026-01-01", "2026-06-30")]
 
     def test_empty_report(self, runner, isolated_config):
         result = _run(runner, ["earnings", "report"], earnings=earnings_payload())

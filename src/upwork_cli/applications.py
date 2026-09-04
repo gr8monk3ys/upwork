@@ -60,12 +60,7 @@ def list_applications(
     for status in statuses:
         try:
             payload = client.get_applications(
-                {
-                    "status": status,
-                    "limit": limit,
-                    "sort_field": sort_field,
-                    "sort_order": "DESC",
-                }
+                status=status, limit=limit, sort_field=sort_field
             )
         except Exception as exc:
             raise ApplicationsError(f"Failed to fetch applications: {exc}") from exc
@@ -108,7 +103,7 @@ def list_offers(
 ) -> list[Offer]:
     """Current offers, optionally filtered by state."""
     try:
-        payload = client.get_offers({"limit": limit, "state": state})
+        payload = client.get_offers(limit=limit, state=state)
     except Exception as exc:
         raise ApplicationsError(f"Failed to fetch offers: {exc}") from exc
 

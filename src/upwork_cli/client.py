@@ -379,27 +379,22 @@ class UpworkClient:
 
     # --- Proposals / Applications ---
 
-    def get_applications(self, params: dict | None = None) -> dict[str, Any]:
-        params = params or {}
-        return self._search_vendor_proposals(
-            status=params.get("status", "Accepted"),
-            limit=int(params.get("limit", 20)),
-            sort_field=params.get("sort_field", "MODIFIEDDATETIME"),
-            sort_order=params.get("sort_order", "DESC"),
-            job_posting_ids=params.get("job_posting_ids"),
-        )
-
-    def get_application(self, reference: str) -> dict[str, Any]:
-        return self._get_vendor_proposal(reference)
-
-    def _search_vendor_proposals(
+    def get_applications(
         self,
+        *,
         status: str = "Accepted",
         limit: int = 20,
-        sort_field: str = "MODIFIEDDATETIME",
+        sort_field: str = "ModifiedDateTime",
         sort_order: str = "DESC",
         job_posting_ids: list[str] | None = None,
     ) -> dict[str, Any]:
+        """Search the freelancer's own submitted proposals.
+
+        ``sort_field`` is a GraphQL enum. The default used to be spelled
+        ``MODIFIEDDATETIME`` while every caller passed ``ModifiedDateTime``,
+        so the two spellings of one enum sat either side of this call; the
+        default now matches the value the callers actually send.
+        """
         variables: dict[str, Any] = {
             "filter": {"status_eq": status},
             "sortAttribute": {
@@ -413,22 +408,15 @@ class UpworkClient:
         data = self._graphql_data(VENDOR_PROPOSALS_QUERY, variables)
         return data.get("vendorProposals", {})
 
-    def _get_vendor_proposal(self, reference: str) -> dict[str, Any]:
+    def get_application(self, reference: str) -> dict[str, Any]:
         data = self._graphql_data(VENDOR_PROPOSAL_QUERY, {"id": reference})
         return data.get("vendorProposal", {})
 
     # --- Offers ---
 
-    def get_offers(self, params: dict | None = None) -> dict[str, Any]:
-        params = params or {}
-        return self._list_current_user_offers(
-            limit=int(params.get("limit", 20)),
-            state=params.get("state"),
-            search_text=params.get("search_text"),
-        )
-
-    def _list_current_user_offers(
+    def get_offers(
         self,
+        *,
         limit: int = 20,
         state: str | None = None,
         search_text: str | None = None,
@@ -502,16 +490,21 @@ class UpworkClient:
 
     # --- Messages ---
 
-    def get_rooms(self, company: str, params: dict | None = None) -> dict[str, Any]:
+    @staticmethod
+    def _paging(limit: int) -> dict[str, str]:
+        """Upwork's offset;count paging string. Its spelling stays in here."""
+        return {"paging": f"0;{limit}"}
+
+    def get_rooms(self, company: str, limit: int = 20) -> dict[str, Any]:
         client = self._ensure_client()
-        return upwork_messages.Api(client).get_rooms(company, params or {})
+        return upwork_messages.Api(client).get_rooms(company, self._paging(limit))
 
     def get_room_messages(
-        self, company: str, room_id: str, params: dict | None = None
+        self, company: str, room_id: str, limit: int = 50
     ) -> dict[str, Any]:
         client = self._ensure_client()
         return upwork_messages.Api(client).get_room_messages(
-            company, room_id, params or {}
+            company, room_id, self._paging(limit)
         )
 
     def send_message(
@@ -533,10 +526,25 @@ class UpworkClient:
     # --- Earnings / Financials ---
 
     def get_earnings(
-        self, freelancer_ref: str, params: dict | None = None
+        self,
+        freelancer_ref: str,
+        from_date: str | None = None,
+        to_date: str | None = None,
     ) -> dict[str, Any]:
+        """The earnings report, optionally bounded by date.
+
+        The report's query dialect -- a ``tq`` string of date clauses --
+        is built here rather than by the caller, so nothing outside this
+        class has to know it.
+        """
+        clauses = []
+        if from_date:
+            clauses.append(f"date >= '{from_date}'")
+        if to_date:
+            clauses.append(f"date <= '{to_date}'")
+        params = {"tq": " AND ".join(clauses)} if clauses else {}
         client = self._ensure_client()
-        return fin_earnings.Api(client).get_by_freelancer(freelancer_ref, params or {})
+        return fin_earnings.Api(client).get_by_freelancer(freelancer_ref, params)
 
     # --- Time Reports ---
 

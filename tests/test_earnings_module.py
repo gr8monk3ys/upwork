@@ -23,7 +23,7 @@ class TestFreelancerReference:
     def test_nested_info_ref(self):
         client = FakeUpworkClient(user_info={"info": {"ref": "~free1"}})
         earnings.fetch(client)
-        assert client.earnings_params == [None]
+        assert client.earnings_params == [(None, None)]
 
     def test_falls_back_to_top_level_keys(self):
         client = FakeUpworkClient(user_info={"id": "alt-ref"})
@@ -101,19 +101,17 @@ class TestFetch:
     def test_date_filter_is_sent(self):
         client = FakeUpworkClient()
         earnings.fetch(client, "2026-01-01", "2026-06-30")
-        assert client.earnings_params == [
-            {"tq": "date >= '2026-01-01' AND date <= '2026-06-30'"}
-        ]
+        assert client.earnings_params == [("2026-01-01", "2026-06-30")]
 
     def test_single_sided_filter(self):
         client = FakeUpworkClient()
         earnings.fetch(client, "2026-01-01", None)
-        assert client.earnings_params == [{"tq": "date >= '2026-01-01'"}]
+        assert client.earnings_params == [("2026-01-01", None)]
 
-    def test_no_filter_sends_none(self):
+    def test_no_filter_sends_no_dates(self):
         client = FakeUpworkClient()
         earnings.fetch(client)
-        assert client.earnings_params == [None]
+        assert client.earnings_params == [(None, None)]
 
     def test_api_error_raises(self):
         client = FakeUpworkClient(earnings=RuntimeError("boom"))
