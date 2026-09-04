@@ -14,6 +14,13 @@ Two examples in the code:
 - `Conversation` carries a room's messages together with the id of whoever is
   reading them, rather than putting `is_own` on `Message`. A message read
   without a viewer has no honest answer to "is this mine?".
+- `ContractDetail` pairs a `Contract` with its `Milestone`s, rather than
+  putting `milestones` on `Contract`. The engagements *list* payload does not
+  carry them, so a listed Contract with an empty list would be asserting it
+  has none rather than that nobody asked.
+- `Proposal.outcome` is `None` until the freelancer records one, and is not
+  defaulted to `no_response`. An unrecorded Outcome and "they never replied"
+  are different facts, and only the freelancer can tell them apart.
 
 The rejected alternative in both cases is simpler and will look tempting: add
 the field, default it, move on. It was considered and turned down because the

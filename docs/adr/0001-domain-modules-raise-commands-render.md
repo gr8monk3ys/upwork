@@ -1,11 +1,12 @@
 # Domain modules raise; commands render and choose the exit code
 
 Every module between the commands and an external service — `messaging`,
-`earnings`, `applications`, `jobs`, `scoring`, `ai/utils` — reports failure by
-raising a typed error (`MessagingError`, `EarningsError`, and so on, all
-`RuntimeError` subclasses). None of them print, and none of them exit. The
-command that called them decides what the user sees and what the process
-returns, via `output.fail`.
+`earnings`, `applications`, `jobs`, `contracts`, `scoring`, `watchlist`,
+`proposals`, `pipeline`, `ai/utils` — reports failure by raising a typed
+error (`MessagingError`, `EarningsError`, and so on, all `RuntimeError`
+subclasses). None of them print, and none of them exit. The command that
+called them decides what the user sees and what the process returns, via
+`output.fail`.
 
 This was not the original shape: the logic these modules now hold used to sit
 inside command bodies, where printing and exiting at the point of failure was
@@ -14,6 +15,12 @@ that prints cannot be tested without capturing stdout, and cannot be reused by
 a caller that wants to carry on. `propose generate` relies on exactly that: it
 catches the researcher's error and drafts without client research rather than
 aborting.
+
+Not every raised error is a failure. `watchlist.AlreadySaved` and
+`NotSaved` subclass `WatchlistError` so a command can tell "you asked for
+something that is already true" from "you asked for something impossible",
+and report the first without exiting non-zero. Raising is how a module says
+it did not do what was asked; the exit code is still the command's call.
 
 ## Consequences
 

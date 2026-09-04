@@ -25,10 +25,10 @@ returns: the cache cannot say why an attempt failed, so it cannot produce one.
 Successes are persisted, failures deliberately are not.
 _Avoid_: scored job, job result, ranked job, job with score
 
-A persisted Score currently has no typed way back out of the cache. It is
-written by a scoring run and read again only as an untyped column inside
-`pipeline view`; the reasoning saved alongside it is never read at all. Any
-work on the Pipeline should close that gap rather than route around it.
+A persisted Score still has no typed way back out of the cache on its own.
+It reaches the Pipeline listing as `PipelineEntry.score`, and the reasoning
+saved alongside it is never read at all. Closing that fully means a cache
+read that returns the pairing; nothing needs it yet.
 
 **Profile**:
 The freelancer's own title, overview, skills, rate and portfolio. The thing a
@@ -67,10 +67,41 @@ _Avoid_: funnel, workflow, board
 
 **Stage**:
 One position in the Pipeline. A Job occupies exactly one at a time, and every
-move between them is kept.
+move between them is kept. The Stages that mean a Proposal actually went out
+— `applied`, `interviewing`, `won`, `lost` — are what the win rate is measured
+against, so a Job still at `found` or `drafted` does not count against it.
 _Avoid_: status, state, step
 
 **Outcome**:
-What became of a Proposal — `won`, `lost` or `no_response`. Recorded by hand,
-and the input to learning what a winning Proposal looks like.
+What became of a Proposal — `won`, `lost` or `no_response`. Absent until the
+freelancer records one: an unrecorded Outcome is not a loss. Recording `won`
+or `lost` moves the Job to the matching Stage; `no_response` moves nothing,
+because hearing nothing back is not yet a loss. The input to learning what a
+winning Proposal looks like.
 _Avoid_: result, disposition
+
+### Searching
+
+**Saved Search**:
+A search term the freelancer keeps so it can be re-run without retyping.
+Normalized and deduplicated: two terms differing only in whitespace are one.
+_Avoid_: query, watch, alert term
+
+**Cycle**:
+One pass over one Saved Search — search, keep the Jobs not seen before, Score
+them if scoring is available, and decide which are worth interrupting for. A
+Cycle that finds nothing and a Cycle whose search failed are different
+answers and never arrive as the same one.
+_Avoid_: run, sweep, poll
+
+**Contract**:
+Work already won, read back from Upwork's engagements. Owned by Upwork; this
+tool can read one and submit work against it, nothing more. Distinct from an
+Offer, which precedes it.
+_Avoid_: engagement, job (when it has been won)
+
+**Milestone**:
+One funded step of a fixed-price Contract. Only a Contract's own detail
+payload can say what its Milestones are, so they are read with the Contract
+and never inferred from a listing.
+_Avoid_: phase, deliverable
