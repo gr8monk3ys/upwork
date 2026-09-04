@@ -5,6 +5,7 @@
 it. Tests construct one instead of assembling a MagicMock per test.
 """
 
+from collections.abc import Callable
 from typing import Any
 
 
@@ -376,3 +377,58 @@ def milestone_node(
 ) -> dict[str, Any]:
     """One fixed-price milestone as the REST API returns it."""
     return {"description": description, "amount": amount, "status": status}
+
+
+class FakeCompleter:
+    """The second adapter at the AI seam.
+
+    Substituted for ``ai.utils.get_completer``'s product, the way
+    ``FakeUpworkClient`` is substituted for ``get_client``'s. Tests used to
+    patch the vendor class ``ai.utils.Anthropic`` and hand-build
+    ``MagicMock`` response objects and ``anthropic.AuthenticationError``
+    instances -- reaching past ``complete`` into its implementation.
+
+    Pass ``error`` to make every call raise it. Pass several ``responses`` to
+    answer successive calls; the last one repeats. Pass ``responder`` to
+    answer based on the prompt, for batch runs where each call differs.
+    """
+
+    def __init__(
+        self,
+        *responses: str,
+        error: Exception | None = None,
+        responder: "Callable[[str], str] | None" = None,
+    ) -> None:
+        self._responses = list(responses) or [""]
+        self._error = error
+        self._responder = responder
+        self.calls: list[dict[str, Any]] = []
+
+    def __call__(
+        self,
+        *,
+        prompt: str,
+        model: str,
+        system: str | None = None,
+        max_tokens: int = 2048,
+    ) -> str:
+        self.calls.append(
+            {
+                "prompt": prompt,
+                "model": model,
+                "system": system,
+                "max_tokens": max_tokens,
+            }
+        )
+        if self._error is not None:
+            raise self._error
+        if self._responder is not None:
+            return self._responder(prompt)
+        if len(self._responses) > 1:
+            return self._responses.pop(0)
+        return self._responses[0]
+
+    @property
+    def prompt(self) -> str:
+        """The prompt of the most recent call."""
+        return self.calls[-1]["prompt"]

@@ -212,3 +212,29 @@ def mock_anthropic_response(text: str, include_thinking: bool = False) -> MagicM
     response = MagicMock()
     response.content = blocks
     return response
+
+
+@pytest.fixture
+def completer(monkeypatch):
+    """Substitute a FakeCompleter at the AI seam.
+
+    Yields the fake so a test can read what reached the model. Set its
+    responses with ``completer.set(...)`` or build one directly and pass it
+    to :func:`use_completer`.
+    """
+    from tests.fakes import FakeCompleter
+
+    fake = FakeCompleter("")
+    monkeypatch.setattr("upwork_cli.ai.utils.get_completer", lambda _key: fake)
+    return fake
+
+
+@pytest.fixture
+def use_completer(monkeypatch):
+    """Install a specific FakeCompleter at the AI seam."""
+
+    def install(fake):
+        monkeypatch.setattr("upwork_cli.ai.utils.get_completer", lambda _key: fake)
+        return fake
+
+    return install
