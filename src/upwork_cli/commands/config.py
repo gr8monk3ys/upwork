@@ -18,6 +18,7 @@ from upwork_cli.config import (
     PROFILE_FILE,
     SECRET_ENV_MAP,
     SETTINGS_FILE,
+    STYLE_GUIDE_FILE,
     Profile,
     ensure_config_dir,
     load_auth,
@@ -402,8 +403,14 @@ def reset():
         return
 
     deleted: list[str] = []
-    style_guide_file = ensure_config_dir() / "style_guide.txt"
-    for filepath in (AUTH_FILE, SETTINGS_FILE, PROFILE_FILE, DB_FILE, style_guide_file):
+    ensure_config_dir()
+    for filepath in (
+        AUTH_FILE,
+        SETTINGS_FILE,
+        PROFILE_FILE,
+        DB_FILE,
+        STYLE_GUIDE_FILE,
+    ):
         if filepath.exists():
             filepath.unlink()
             deleted.append(filepath.name)

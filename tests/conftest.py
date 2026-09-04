@@ -29,10 +29,20 @@ def isolated_config(tmp_path, monkeypatch):
         "PROFILE_FILE": cfg / "profile.yaml",
         "SETTINGS_FILE": cfg / "settings.yaml",
         "DB_FILE": cfg / "upwork.db",
+        "STYLE_GUIDE_FILE": cfg / "style_guide.txt",
     }
 
     # Patch in config (canonical) and all known re-importers
-    for mod in ("upwork_cli.config", "upwork_cli.db", "upwork_cli.commands.config"):
+    # Every module that re-imports one of these names binds its own copy, so
+    # each has to be patched. A name missing from this list leaks: a test
+    # writes to the developer's real ~/.config, which is how STYLE_GUIDE_FILE
+    # was caught.
+    for mod in (
+        "upwork_cli.config",
+        "upwork_cli.db",
+        "upwork_cli.commands.config",
+        "upwork_cli.commands.propose",
+    ):
         for name, value in paths.items():
             monkeypatch.setattr(f"{mod}.{name}", value, raising=False)
 

@@ -17,6 +17,7 @@ DEFAULT_MODEL = "claude-opus-5"
 CONFIG_DIR = Path.home() / ".config" / "upwork-cli"
 AUTH_FILE = CONFIG_DIR / "auth.json"
 PROFILE_FILE = CONFIG_DIR / "profile.yaml"
+STYLE_GUIDE_FILE = CONFIG_DIR / "style_guide.txt"
 SETTINGS_FILE = CONFIG_DIR / "settings.yaml"
 DB_FILE = CONFIG_DIR / "upwork.db"
 
@@ -398,6 +399,24 @@ class Profile:
         )
         parts.append(f"Experience Years: {self.experience_years or 'NOT SET'}")
         return "\n".join(parts)
+
+
+def load_style_guide() -> str:
+    """The learnt style guide, or empty when nothing has been learnt yet."""
+    if not STYLE_GUIDE_FILE.exists():
+        return ""
+    return STYLE_GUIDE_FILE.read_text(encoding="utf-8").strip()
+
+
+def save_style_guide(text: str) -> None:
+    """Store the style guide, creating the config directory if it is absent.
+
+    `propose learn` used to write straight to the path. On a fresh install
+    -- no config directory yet -- that raised FileNotFoundError rather than
+    saving anything.
+    """
+    ensure_config_dir()
+    STYLE_GUIDE_FILE.write_text(text, encoding="utf-8")
 
 
 def _write_private(path: Path, text: str) -> None:

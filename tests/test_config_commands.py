@@ -145,3 +145,47 @@ class TestConfigStatus:
         assert result.exit_code == 0
         assert "ANTHROPIC_API_KEY" in result.output
         assert "sk-from-env" not in result.output  # never echo the value
+
+
+class TestStyleGuideStorage:
+    """`propose learn` wrote straight to `CONFIG_DIR / "style_guide.txt"`.
+
+    On a fresh install -- no config directory yet -- that raised
+    FileNotFoundError instead of saving. CI caught it; the local suite did
+    not, because a passing earlier test had already made the directory.
+    """
+
+    def test_saving_creates_the_config_directory(self, isolated_config, monkeypatch):
+        from upwork_cli import config as config_module
+
+        assert not config_module.STYLE_GUIDE_FILE.exists()
+        config_module.save_style_guide("## What works\nLead with results.")
+        assert config_module.STYLE_GUIDE_FILE.exists()
+
+    def test_round_trips(self, isolated_config):
+        from upwork_cli.config import load_style_guide, save_style_guide
+
+        save_style_guide("  ## What works  ")
+        assert load_style_guide() == "## What works"
+
+    def test_absent_reads_as_empty_not_an_error(self, isolated_config):
+        from upwork_cli.config import load_style_guide
+
+        assert load_style_guide() == ""
+
+    def test_a_learnt_guide_reaches_the_next_draft(
+        self, runner, isolated_config, api_key, use_completer
+    ):
+        from tests.fakes import FakeCompleter
+        from upwork_cli.config import save_style_guide
+        from upwork_cli.db import init_db, upsert_job
+        from upwork_cli.models import JobPosting
+
+        init_db()
+        save_profile(Profile(title="Python dev"))
+        upsert_job(JobPosting(id="~j", title="Build a scraper"))
+        save_style_guide("Always open with a measurable result.")
+        fake = use_completer(FakeCompleter("Drafted."))
+        runner.invoke(cli, ["propose", "generate", "~j", "--no-research"])
+        # The guide steers the drafter through its system prompt, not the user one.
+        assert "Always open with a measurable result." in fake.calls[-1]["system"]

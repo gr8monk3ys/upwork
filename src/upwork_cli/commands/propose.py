@@ -18,7 +18,12 @@ from upwork_cli import proposals as proposals_api
 from upwork_cli.ai.drafter import draft_proposal, refine_proposal
 from upwork_cli.ai.utils import require_api_key
 from upwork_cli.client import NotAuthenticated, get_client
-from upwork_cli.config import CONFIG_DIR, load_profile
+from upwork_cli.config import (
+    STYLE_GUIDE_FILE,
+    load_profile,
+    load_style_guide,
+    save_style_guide,
+)
 from upwork_cli.db import (
     get_job,
     get_latest_proposal,
@@ -266,10 +271,7 @@ def generate(
                 job_summary += f"\n\nClient Research Tips: {tips}"
 
     # 2b. Load cached style guide ------------------------------------------
-    style_guide = ""
-    style_guide_path = CONFIG_DIR / "style_guide.txt"
-    if style_guide_path.exists():
-        style_guide = style_guide_path.read_text(encoding="utf-8").strip()
+    style_guide = load_style_guide()
 
     # 2c. Draft proposal ---------------------------------------------------
     with console.status("[bold green]Generating proposal..."):
@@ -581,9 +583,7 @@ def learn():
         except RuntimeError as exc:
             output.fail(exc)
 
-    # Cache to disk
-    style_guide_path = CONFIG_DIR / "style_guide.txt"
-    style_guide_path.write_text(style_guide, encoding="utf-8")
+    save_style_guide(style_guide)
 
     console.print()
     console.print(
@@ -593,5 +593,5 @@ def learn():
             border_style="green",
         )
     )
-    console.print(f"\n[dim]Style guide saved to {style_guide_path}[/dim]")
+    console.print(f"\n[dim]Style guide saved to {STYLE_GUIDE_FILE}[/dim]")
     console.print("[dim]Future proposals will automatically use this guide.[/dim]")
