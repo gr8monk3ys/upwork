@@ -127,3 +127,11 @@ class TestTimestamps:
     def test_unreadable_values_are_none_not_a_guess(self):
         assert timestamps.parse("") is None
         assert timestamps.parse("not a date") is None
+
+
+class TestMoveUnknownJob:
+    def test_an_uncached_job_is_reported_not_a_traceback(self, isolated_config):
+        """Used to surface as a raw sqlite3 FOREIGN KEY traceback."""
+        init_db()
+        with pytest.raises(pipeline.PipelineError, match="not in the local cache"):
+            pipeline.move("~never-seen", "won")

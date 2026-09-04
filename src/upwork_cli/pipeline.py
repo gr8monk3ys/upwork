@@ -11,6 +11,7 @@ A Job occupies exactly one Stage at a time and every move between them is
 kept. Failures are raised, not printed.
 """
 
+import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -127,13 +128,22 @@ def move(job_id: str, stage: str, notes: str = "") -> None:
     """Move a Job to *stage*, keeping the transition.
 
     Raises:
-        PipelineError: on a Stage that is not one of :data:`STAGES`. This is
-            the only validation there has ever been outside `click.Choice`,
-            which three callers bypassed with string literals.
+        PipelineError: on a Stage that is not one of :data:`STAGES`, or on a
+            Job the cache does not hold. The Stage check is the only
+            validation there has ever been outside `click.Choice`, which
+            three callers bypassed with string literals.
     """
     if stage not in STAGES:
         raise PipelineError(f"Unknown stage: {stage}. Use one of {', '.join(STAGES)}.")
-    db.set_pipeline_stage(job_id, stage, notes)
+    try:
+        db.set_pipeline_stage(job_id, stage, notes)
+    except sqlite3.IntegrityError as exc:
+        # The pipeline references jobs(id); an unknown job used to surface
+        # as a raw FOREIGN KEY traceback.
+        raise PipelineError(
+            f"Job {job_id} is not in the local cache. "
+            "Run 'upwork jobs search' or 'upwork jobs detail' for it first."
+        ) from exc
 
 
 def entries(stage: str | None = None) -> list[PipelineEntry]:
