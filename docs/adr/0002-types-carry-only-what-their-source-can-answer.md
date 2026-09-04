@@ -23,7 +23,6 @@ return the pairing instead.
 
 ## Consequences
 
-Slightly more types, and callers reach through one level (`result.job.title`,
-`conversation.is_own(message)`). In exchange, no caller has to remember which
-fields are meaningful on which instances, and no producer has to invent a
-value it cannot know.
+Callers reach through one level: `result.job.title` rather than
+`result.title`, and `conversation.is_own(message)` rather than
+`message.is_own`.
