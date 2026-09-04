@@ -2,14 +2,7 @@
 
 from datetime import datetime, timedelta, timezone
 
-from upwork_cli.commands.jobs import (
-    _filter_jobs,
-    _format_skills,
-    _get_saved_search_terms,
-    _normalize_search_term,
-    _score_color,
-)
-from upwork_cli.config import Settings
+from upwork_cli.commands.jobs import _filter_jobs, _format_skills, _score_color
 from upwork_cli.models import JobPosting
 
 
@@ -105,18 +98,3 @@ class TestFilterJobs:
         )
         assert len(filtered) == 1
         assert filtered[0].budget_amount == 100
-
-
-class TestSavedSearchHelpers:
-    def test_normalize_search_term(self):
-        assert _normalize_search_term("  python   developer  ") == "python developer"
-
-    def test_saved_search_terms_are_deduplicated(self):
-        settings = Settings(
-            default_search_terms=[
-                " python developer ",
-                "python developer",
-                "react native",
-            ]
-        )
-        assert _get_saved_search_terms(settings) == ["python developer", "react native"]

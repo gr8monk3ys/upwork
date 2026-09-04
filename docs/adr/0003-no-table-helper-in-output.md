@@ -2,7 +2,8 @@
 
 `upwork_cli/output.py` holds the shared console, `fail`, `empty`, `warn`,
 `money` and `truncate` — everything the seven command modules were deciding
-separately. It deliberately does **not** wrap `rich.Table`, even though the CLI
+separately, and which all seven now use: no command module raises `SystemExit`
+by hand any more. It deliberately does **not** wrap `rich.Table`, even though the CLI
 builds seventeen tables inline and consolidating them looks like the obvious
 next step.
 

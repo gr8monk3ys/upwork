@@ -12,11 +12,13 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
 
+from upwork_cli import jobs as jobs_api
 from upwork_cli import output
+from upwork_cli import proposals as proposals_api
 from upwork_cli.ai.drafter import draft_proposal, refine_proposal
 from upwork_cli.ai.utils import require_api_key
-from upwork_cli.client import UpworkClient
-from upwork_cli.config import CONFIG_DIR, load_profile, load_settings
+from upwork_cli.client import NotAuthenticated, get_client
+from upwork_cli.config import CONFIG_DIR, load_profile
 from upwork_cli.db import (
     get_job,
     get_latest_proposal,
@@ -24,10 +26,6 @@ from upwork_cli.db import (
     get_proposals,
     get_winning_proposals,
     init_db,
-    mark_proposal_outcome,
-    save_proposal,
-    set_pipeline_stage,
-    upsert_job,
 )
 from upwork_cli.models import JobPosting
 from upwork_cli.output import console
@@ -97,7 +95,7 @@ def _job_from_description(
         job_id = f"manual-{digest}"
 
     posting = JobPosting(id=job_id, title=title, description=text)
-    upsert_job(posting)
+    jobs_api.cache([posting])
     return posting
 
 
@@ -177,7 +175,6 @@ def generate(
         raise click.UsageError("Provide a JOB_ID or --from-file <path>.")
 
     require_api_key()
-    settings = load_settings()
     profile = load_profile()
 
     if not profile.title:
@@ -199,24 +196,19 @@ def generate(
             f"[dim]Job {job_id} not in local cache. Fetching from API...[/dim]"
         )
         try:
-            client = UpworkClient(settings=settings)
-            job_data = client.get_job_detail(job_id)
-            # Persist to DB for future use
-            posting = JobPosting.from_rest(job_data)
-            upsert_job(posting)
-            job = get_job(job_id)
-        except Exception as exc:
-            console.print(f"[red]Failed to fetch job {job_id}:[/red] {exc}")
+            job = jobs_api.get_detail(get_client(), job_id)
+            if job is not None:
+                jobs_api.cache([job])
+        except (NotAuthenticated, jobs_api.JobsError) as exc:
             console.print(
                 "[dim]Tip: save the job posting text to a file and run "
                 "[bold]propose generate --from-file <path>[/bold] — "
                 "no API access needed.[/dim]"
             )
-            raise SystemExit(1)
+            output.fail(f"Failed to fetch job {job_id}: {exc}")
 
     if job is None:
-        console.print(f"[red]Job {job_id} could not be loaded.[/red]")
-        raise SystemExit(1)
+        output.fail(f"Job {job_id} could not be loaded.")
 
     job_title = job.title or "Untitled"
 
@@ -290,23 +282,18 @@ def generate(
                 style_guide=style_guide,
             )
         except RuntimeError as exc:
-            console.print(f"[red]Proposal generation failed:[/red] {exc}")
-            raise SystemExit(1)
+            output.fail(f"Proposal generation failed: {exc}")
 
     # 3. Optional editor pass ----------------------------------------------
     if open_editor:
         content = _open_in_editor(content)
 
     # 4. Save to DB and update pipeline ------------------------------------
-    proposal_id = save_proposal(
-        job_id=job_id,
-        job_title=job_title,
-        content=content,
-        tone=tone,
-    )
-    # A draft is not an application — win-rate stats only count jobs you
-    # actually submitted. Move to "applied" once the proposal is really sent.
-    set_pipeline_stage(job_id, "drafted")
+    try:
+        stored = proposals_api.record(job_id, job_title, content, tone)
+    except proposals_api.ProposalsError as exc:
+        output.fail(exc)
+    proposal_id = stored.id
 
     # 5. Display -----------------------------------------------------------
     console.print()
@@ -350,20 +337,19 @@ def refine(proposal_id: int | None, feedback: str | None):
     if proposal_id is not None:
         proposal = get_proposal(proposal_id)
         if proposal is None:
-            console.print(f"[red]Proposal #{proposal_id} not found.[/red]")
-            raise SystemExit(1)
+            output.fail(f"Proposal #{proposal_id} not found.")
     else:
         proposal = get_latest_proposal()
         if proposal is None:
-            console.print(
-                "[red]No proposals found.[/red] Generate one first with [bold]propose generate[/bold]."
+            output.fail(
+                "No proposals found. Generate one first with "
+                "[bold]propose generate[/bold]."
             )
-            raise SystemExit(1)
 
-    original_content = proposal["content"]
-    job_id = proposal["job_id"]
-    job_title = proposal.get("job_title", "Untitled")
-    tone = proposal.get("tone", "professional")
+    original_content = proposal.content
+    job_id = proposal.job_id
+    job_title = proposal.title
+    tone = proposal.tone
 
     if feedback is None:
         feedback = click.prompt("What would you like to change?")
@@ -376,23 +362,20 @@ def refine(proposal_id: int | None, feedback: str | None):
                 feedback=feedback,
             )
         except RuntimeError as exc:
-            console.print(f"[red]Refinement failed:[/red] {exc}")
-            raise SystemExit(1)
+            output.fail(f"Refinement failed: {exc}")
 
     # Save refined version as a new proposal
-    new_id = save_proposal(
-        job_id=job_id,
-        job_title=job_title,
-        content=refined_content,
-        tone=tone,
-    )
+    try:
+        new_id = proposals_api.record(job_id, job_title, refined_content, tone).id
+    except proposals_api.ProposalsError as exc:
+        output.fail(exc)
 
     # Show before / after
     console.print()
     console.print(
         Panel(
             Markdown(original_content),
-            title=f"BEFORE — Proposal #{proposal['id']}",
+            title=f"BEFORE — Proposal #{proposal.id}",
             border_style="red",
         )
     )
@@ -436,16 +419,13 @@ def history(limit: int):
     table.add_column("Date", style="green")
     table.add_column("Preview", style="dim", max_width=80)
 
-    for p in proposals:
-        preview = (p.get("content") or "")[:80].replace("\n", " ")
-        if len(p.get("content", "")) > 80:
-            preview += "..."
+    for proposal in proposals:
         table.add_row(
-            str(p["id"]),
-            p.get("job_title", "—"),
-            p.get("tone", "—"),
-            p.get("created_at", "—"),
-            preview,
+            str(proposal.id),
+            proposal.title,
+            proposal.tone,
+            proposal.created_at or "—",
+            output.truncate(proposal.content.replace("\n", " "), 80),
         )
 
     console.print(table)
@@ -471,13 +451,12 @@ def show(proposal_id: int, copy_to_clip: bool):
     proposal = get_proposal(proposal_id)
 
     if proposal is None:
-        console.print(f"[red]Proposal #{proposal_id} not found.[/red]")
-        raise SystemExit(1)
+        output.fail(f"Proposal #{proposal_id} not found.")
 
-    content = proposal["content"]
-    job_title = proposal.get("job_title", "Untitled")
-    tone = proposal.get("tone", "")
-    created = proposal.get("created_at", "")
+    content = proposal.content
+    job_title = proposal.title
+    tone = proposal.tone
+    created = proposal.created_at
 
     console.print()
     console.print(
@@ -493,9 +472,9 @@ def show(proposal_id: int, copy_to_clip: bool):
         if _copy_to_clipboard(content):
             console.print("\n[green]Copied to clipboard.[/green]")
         else:
-            console.print(
-                "\n[red]Failed to copy to clipboard.[/red] "
-                "[dim](no clipboard tool found — install pbcopy, wl-copy, xclip, or xsel)[/dim]"
+            output.warn(
+                "Failed to copy to clipboard "
+                "(no clipboard tool found — install pbcopy, wl-copy, xclip, or xsel)."
             )
 
 
@@ -513,8 +492,7 @@ def prep(job_id: str):
 
     job = get_job(job_id)
     if job is None:
-        console.print(f"[red]Job {job_id} not found in local cache.[/red]")
-        raise SystemExit(1)
+        output.fail(f"Job {job_id} not found in local cache.")
 
     job_summary = job.summary_for_ai()
     profile_summary = profile.summary() if profile.title else ""
@@ -528,8 +506,7 @@ def prep(job_id: str):
                 profile_summary=profile_summary,
             )
         except RuntimeError as exc:
-            console.print(f"[red]{exc}[/red]")
-            raise SystemExit(1)
+            output.fail(exc)
 
     console.print()
     console.print(
@@ -551,18 +528,10 @@ def prep(job_id: str):
 @click.argument("outcome", type=click.Choice(["won", "lost", "no_response"]))
 def mark(proposal_id: int, outcome: str):
     """Mark a proposal's outcome (won/lost/no_response)."""
-    proposal = get_proposal(proposal_id)
-    if proposal is None:
-        console.print(f"[red]Proposal #{proposal_id} not found.[/red]")
-        raise SystemExit(1)
-
-    mark_proposal_outcome(proposal_id, outcome)
-
-    # If won, also move pipeline stage
-    if outcome == "won" and proposal.get("job_id"):
-        set_pipeline_stage(proposal["job_id"], "won")
-    elif outcome == "lost" and proposal.get("job_id"):
-        set_pipeline_stage(proposal["job_id"], "lost")
+    try:
+        proposals_api.mark(proposal_id, outcome)
+    except proposals_api.ProposalsError as exc:
+        output.fail(exc)
 
     colors = {"won": "green", "lost": "red", "no_response": "yellow"}
     color = colors.get(outcome, "white")
@@ -593,8 +562,7 @@ def learn():
         try:
             style_guide = extract_winning_patterns(winners)
         except RuntimeError as exc:
-            console.print(f"[red]{exc}[/red]")
-            raise SystemExit(1)
+            output.fail(exc)
 
     # Cache to disk
     style_guide_path = CONFIG_DIR / "style_guide.txt"

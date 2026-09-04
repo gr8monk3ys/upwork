@@ -34,6 +34,18 @@ class TestJobFromDescription:
         assert row is not None
         assert "Build an API." in row["description"]
 
+    def test_caching_puts_the_job_at_the_start_of_the_pipeline(self, isolated_config):
+        """The API-free path used to skip the Pipeline entirely.
+
+        It cached the row by hand instead of going through ``jobs.cache``, so
+        a Job drafted from a file never appeared at ``found`` -- even though
+        ``propose generate`` moves it to ``drafted`` moments later.
+        """
+        init_db()
+        job = _job_from_description("Build an API.", title="API work", job_id=None)
+        stages = {r["job_id"]: r["stage"] for r in get_pipeline_jobs()}
+        assert stages[job.id] == "found"
+
     def test_explicit_title_and_id(self, isolated_config):
         init_db()
         job = _job_from_description("text body", title="My Job", job_id="custom-1")

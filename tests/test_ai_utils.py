@@ -6,12 +6,15 @@ import anthropic
 import pytest
 
 from tests.conftest import mock_anthropic_response
+from tests.fakes import FakeCompleter
 from upwork_cli.ai.utils import (
     AIError,
+    AnthropicCompleter,
     MissingAPIKey,
     complete,
     complete_json,
     extract_text,
+    get_completer,
     require_api_key,
     strip_json_fences,
 )
@@ -69,28 +72,43 @@ class TestExtractText:
         assert extract_text(resp) == ""
 
 
-class TestComplete:
-    def test_returns_text(self):
-        resp = mock_anthropic_response("output text")
-        with patch("upwork_cli.ai.utils.Anthropic") as M:
-            M.return_value.messages.create.return_value = resp
-            assert complete("prompt", "key") == "output text"
+class TestAnthropicCompleter:
+    """The real adapter at the AI seam.
 
-    def test_passes_model_override(self):
-        resp = mock_anthropic_response("ok")
+    This is the one place the vendor SDK belongs in a test: translating
+    Anthropic's exceptions into AIError is exactly what this class is for.
+    Every other AI test substitutes a FakeCompleter instead.
+    """
+
+    def test_returns_the_response_text(self):
         with patch("upwork_cli.ai.utils.Anthropic") as M:
-            M.return_value.messages.create.return_value = resp
-            complete("prompt", "key", model="claude-haiku-4-5")
+            M.return_value.messages.create.return_value = mock_anthropic_response("out")
+            assert AnthropicCompleter("key")(prompt="p", model="m") == "out"
+
+    def test_thinking_blocks_are_skipped(self):
+        with patch("upwork_cli.ai.utils.Anthropic") as M:
+            M.return_value.messages.create.return_value = mock_anthropic_response(
+                "body", include_thinking=True
+            )
+            assert AnthropicCompleter("key")(prompt="p", model="m") == "body"
+
+    def test_the_request_carries_prompt_model_and_system(self):
+        with patch("upwork_cli.ai.utils.Anthropic") as M:
+            M.return_value.messages.create.return_value = mock_anthropic_response("ok")
+            AnthropicCompleter("key")(
+                prompt="p", model="claude-haiku-4-5", system="be brief", max_tokens=64
+            )
             kwargs = M.return_value.messages.create.call_args.kwargs
             assert kwargs["model"] == "claude-haiku-4-5"
+            assert kwargs["system"] == "be brief"
+            assert kwargs["max_tokens"] == 64
+            assert kwargs["messages"] == [{"role": "user", "content": "p"}]
 
-    def test_defaults_model(self):
-        resp = mock_anthropic_response("ok")
+    def test_no_system_key_when_none_is_given(self):
         with patch("upwork_cli.ai.utils.Anthropic") as M:
-            M.return_value.messages.create.return_value = resp
-            complete("prompt", "key")
-            kwargs = M.return_value.messages.create.call_args.kwargs
-            assert kwargs["model"] == DEFAULT_MODEL
+            M.return_value.messages.create.return_value = mock_anthropic_response("ok")
+            AnthropicCompleter("key")(prompt="p", model="m")
+            assert "system" not in M.return_value.messages.create.call_args.kwargs
 
     def test_authentication_error(self):
         with patch("upwork_cli.ai.utils.Anthropic") as M:
@@ -100,7 +118,7 @@ class TestComplete:
                 body={"error": {"message": "bad key"}},
             )
             with pytest.raises(AIError, match="Invalid Anthropic API key"):
-                complete("prompt", "bad-key")
+                AnthropicCompleter("bad-key")(prompt="p", model="m")
 
     def test_rate_limit_error(self):
         with patch("upwork_cli.ai.utils.Anthropic") as M:
@@ -110,24 +128,59 @@ class TestComplete:
                 body={"error": {"message": "slow down"}},
             )
             with pytest.raises(AIError, match="rate limit"):
-                complete("prompt", "key")
+                AnthropicCompleter("key")(prompt="p", model="m")
 
     def test_generic_error_wrapped(self):
         with patch("upwork_cli.ai.utils.Anthropic") as M:
             M.return_value.messages.create.side_effect = Exception("boom")
             with pytest.raises(AIError, match="Anthropic call failed"):
-                complete("prompt", "key")
+                AnthropicCompleter("key")(prompt="p", model="m")
 
-    def test_no_text_content_raises(self):
-        resp = MagicMock()
-        resp.content = []
+    def test_get_completer_builds_one_with_the_key(self):
         with patch("upwork_cli.ai.utils.Anthropic") as M:
-            M.return_value.messages.create.return_value = resp
-            with pytest.raises(AIError, match="no text content"):
-                complete("prompt", "key")
+            get_completer("the-key")
+            assert M.call_args.kwargs["api_key"] == "the-key"
+
+
+class TestComplete:
+    def test_returns_text(self, use_completer):
+        use_completer(FakeCompleter("output text"))
+        assert complete("prompt", "key") == "output text"
+
+    def test_passes_model_override(self, use_completer):
+        fake = use_completer(FakeCompleter("ok"))
+        complete("prompt", "key", model="claude-haiku-4-5")
+        assert fake.calls[-1]["model"] == "claude-haiku-4-5"
+
+    def test_defaults_model(self, use_completer):
+        fake = use_completer(FakeCompleter("ok"))
+        complete("prompt", "key")
+        assert fake.calls[-1]["model"] == DEFAULT_MODEL
+
+    def test_no_text_content_raises(self, use_completer):
+        use_completer(FakeCompleter(""))
+        with pytest.raises(AIError, match="no text content"):
+            complete("prompt", "key")
+
+    def test_an_adapter_failure_reaches_the_caller(self, use_completer):
+        use_completer(FakeCompleter(error=AIError("Anthropic call failed: boom")))
+        with pytest.raises(AIError, match="Anthropic call failed"):
+            complete("prompt", "key")
 
     def test_ai_error_is_runtime_error(self):
         assert issubclass(AIError, RuntimeError)
+
+
+def _record_key(monkeypatch) -> dict:
+    """Capture the api_key the seam is built with."""
+    seen: dict = {}
+
+    def build(key: str) -> FakeCompleter:
+        seen["key"] = key
+        return FakeCompleter("hi")
+
+    monkeypatch.setattr("upwork_cli.ai.utils.get_completer", build)
+    return seen
 
 
 class TestConfigResolution:
@@ -135,27 +188,23 @@ class TestConfigResolution:
 
     def test_key_comes_from_settings(self, isolated_config, monkeypatch):
         monkeypatch.setenv("ANTHROPIC_API_KEY", "from-settings")
-        resp = mock_anthropic_response("hi")
-        with patch("upwork_cli.ai.utils.Anthropic") as M:
-            M.return_value.messages.create.return_value = resp
-            complete("prompt")
-        assert M.call_args.kwargs["api_key"] == "from-settings"
+        seen = _record_key(monkeypatch)
+        complete("prompt")
+        assert seen["key"] == "from-settings"
 
     def test_an_explicit_key_wins(self, isolated_config, monkeypatch):
         monkeypatch.setenv("ANTHROPIC_API_KEY", "from-settings")
-        resp = mock_anthropic_response("hi")
-        with patch("upwork_cli.ai.utils.Anthropic") as M:
-            M.return_value.messages.create.return_value = resp
-            complete("prompt", "explicit", model="m")
-        assert M.call_args.kwargs["api_key"] == "explicit"
+        seen = _record_key(monkeypatch)
+        complete("prompt", "explicit", model="m")
+        assert seen["key"] == "explicit"
 
-    def test_model_defaults_when_settings_are_empty(self, isolated_config, monkeypatch):
+    def test_model_defaults_when_settings_are_empty(
+        self, isolated_config, monkeypatch, use_completer
+    ):
         monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
-        resp = mock_anthropic_response("hi")
-        with patch("upwork_cli.ai.utils.Anthropic") as M:
-            M.return_value.messages.create.return_value = resp
-            complete("prompt")
-        assert M.return_value.messages.create.call_args.kwargs["model"] == DEFAULT_MODEL
+        fake = use_completer(FakeCompleter("hi"))
+        complete("prompt")
+        assert fake.calls[-1]["model"] == DEFAULT_MODEL
 
     def test_no_key_anywhere_raises(self, isolated_config, monkeypatch):
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
@@ -173,17 +222,15 @@ class TestConfigResolution:
 
 
 class TestCompleteJson:
-    def test_parses_a_fenced_object(self, isolated_config):
-        resp = mock_anthropic_response('```json\n{"a": 1}\n```')
-        with patch("upwork_cli.ai.utils.Anthropic") as M:
-            M.return_value.messages.create.return_value = resp
-            assert complete_json("prompt", "key") == {"a": 1}
+    def test_parses_a_fenced_object(self, isolated_config, use_completer):
+        use_completer(FakeCompleter('```json\n{"a": 1}\n```'))
+        assert complete_json("prompt", "key") == {"a": 1}
 
-    def test_unusable_output_raises_for_every_caller(self, isolated_config):
+    def test_unusable_output_raises_for_every_caller(
+        self, isolated_config, use_completer
+    ):
         """One policy: modules used to variously raise or substitute a
         canned answer."""
-        resp = mock_anthropic_response("not json at all")
-        with patch("upwork_cli.ai.utils.Anthropic") as M:
-            M.return_value.messages.create.return_value = resp
-            with pytest.raises(AIError, match="Could not parse audit response"):
-                complete_json("prompt", "key", what="audit response")
+        use_completer(FakeCompleter("not json at all"))
+        with pytest.raises(AIError, match="Could not parse audit response"):
+            complete_json("prompt", "key", what="audit response")

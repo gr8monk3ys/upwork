@@ -72,6 +72,65 @@ def require_api_key() -> None:
     _resolve(None, None)
 
 
+class AnthropicCompleter:
+    """The adapter at the AI seam: the only place the vendor SDK appears.
+
+    Translating Anthropic's exceptions into :class:`AIError` happens here, so
+    an SDK upgrade touches one class and no test has to construct an
+    ``anthropic.AuthenticationError`` to exercise the failure path.
+    """
+
+    def __init__(self, api_key: str) -> None:
+        self._client = Anthropic(api_key=api_key)
+
+    def __call__(
+        self,
+        *,
+        prompt: str,
+        model: str,
+        system: str | None = None,
+        max_tokens: int = 2048,
+    ) -> str:
+        request: dict[str, Any] = {
+            "model": model,
+            "max_tokens": max_tokens,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        if system:
+            request["system"] = system
+
+        try:
+            response = self._client.messages.create(**request)
+        except anthropic.AuthenticationError as exc:
+            raise AIError(
+                "Invalid Anthropic API key. Check your key in settings."
+            ) from exc
+        except anthropic.RateLimitError as exc:
+            raise AIError(
+                "Anthropic rate limit reached. Please wait a moment and try again."
+            ) from exc
+        except anthropic.APIStatusError as exc:
+            raise AIError(
+                f"Anthropic API error ({exc.status_code}): {exc.message}"
+            ) from exc
+        except anthropic.APIError as exc:
+            raise AIError(f"Anthropic API error: {exc}") from exc
+        except Exception as exc:
+            raise AIError(f"Anthropic call failed: {exc}") from exc
+
+        return extract_text(response)
+
+
+def get_completer(api_key: str) -> AnthropicCompleter:
+    """The single construction site for the AI seam.
+
+    Mirrors ``client.get_client``: one place builds the real adapter, so a
+    test substitutes a fake here rather than patching the vendor's class
+    name and hand-building its response objects.
+    """
+    return AnthropicCompleter(api_key)
+
+
 def complete(
     prompt: str,
     api_key: str | None = None,
@@ -87,33 +146,9 @@ def complete(
         AIError: on any API failure or if the response has no text content.
     """
     api_key, model = _resolve(api_key, model)
-    client = Anthropic(api_key=api_key)
-    request: dict[str, Any] = {
-        "model": model,
-        "max_tokens": max_tokens,
-        "messages": [{"role": "user", "content": prompt}],
-    }
-    if system:
-        request["system"] = system
-
-    try:
-        response = client.messages.create(**request)
-    except anthropic.AuthenticationError as exc:
-        raise AIError("Invalid Anthropic API key. Check your key in settings.") from exc
-    except anthropic.RateLimitError as exc:
-        raise AIError(
-            "Anthropic rate limit reached. Please wait a moment and try again."
-        ) from exc
-    except anthropic.APIStatusError as exc:
-        raise AIError(
-            f"Anthropic API error ({exc.status_code}): {exc.message}"
-        ) from exc
-    except anthropic.APIError as exc:
-        raise AIError(f"Anthropic API error: {exc}") from exc
-    except Exception as exc:
-        raise AIError(f"Anthropic call failed: {exc}") from exc
-
-    text = extract_text(response)
+    text = get_completer(api_key)(
+        prompt=prompt, model=model, system=system, max_tokens=max_tokens
+    )
     if not text:
         raise AIError("Model response contained no text content.")
     return text

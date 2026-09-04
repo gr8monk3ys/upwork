@@ -1,11 +1,10 @@
 """Tests for the AI profile audit module upwork_cli.ai.auditor."""
 
 import json
-from unittest.mock import patch
 
 import pytest
 
-from tests.conftest import mock_anthropic_response
+from tests.fakes import FakeCompleter
 from upwork_cli.ai.auditor import audit_profile
 from upwork_cli.ai.utils import AIError
 
@@ -33,45 +32,38 @@ SAMPLE_AUDIT_JSON = json.dumps(
 
 
 class TestAuditProfile:
-    def test_happy_path(self):
-        resp = mock_anthropic_response(SAMPLE_AUDIT_JSON)
-        with patch("upwork_cli.ai.utils.Anthropic") as MockClient:
-            MockClient.return_value.messages.create.return_value = resp
-            result = audit_profile("profile text", "fake-key")
-
+    def test_happy_path(self, use_completer):
+        use_completer(FakeCompleter(SAMPLE_AUDIT_JSON))
+        result = audit_profile("profile text", "fake-key")
         assert result["total_score"] == 72
         assert len(result["breakdown"]) == 5
         assert len(result["top_3_improvements"]) == 3
 
-    def test_fenced_json_response(self):
-        fenced = f"```json\n{SAMPLE_AUDIT_JSON}\n```"
-        resp = mock_anthropic_response(fenced)
-        with patch("upwork_cli.ai.utils.Anthropic") as MockClient:
-            MockClient.return_value.messages.create.return_value = resp
-            result = audit_profile("profile text", "key")
+    def test_fenced_json_response(self, use_completer):
+        use_completer(FakeCompleter(f"```json\n{SAMPLE_AUDIT_JSON}\n```"))
+        assert audit_profile("profile text", "key")["total_score"] == 72
 
-        assert result["total_score"] == 72
+    def test_the_profile_reaches_the_model(self, use_completer):
+        fake = use_completer(FakeCompleter(SAMPLE_AUDIT_JSON))
+        audit_profile("Senior Python engineer, 8 years", "key")
+        assert "Senior Python engineer, 8 years" in fake.prompt
 
-    def test_score_clamped_to_100(self):
-        bad_json = json.dumps(
-            {"total_score": 150, "breakdown": [], "top_3_improvements": []}
+    def test_score_clamped_to_100(self, use_completer):
+        use_completer(
+            FakeCompleter(
+                json.dumps(
+                    {"total_score": 150, "breakdown": [], "top_3_improvements": []}
+                )
+            )
         )
-        resp = mock_anthropic_response(bad_json)
-        with patch("upwork_cli.ai.utils.Anthropic") as MockClient:
-            MockClient.return_value.messages.create.return_value = resp
-            result = audit_profile("profile text", "key")
+        assert audit_profile("profile text", "key")["total_score"] == 100
 
-        assert result["total_score"] == 100
+    def test_api_error_raises(self, use_completer):
+        use_completer(FakeCompleter(error=AIError("Anthropic call failed: API down")))
+        with pytest.raises(AIError):
+            audit_profile("profile text", "key")
 
-    def test_api_error_raises(self):
-        with patch("upwork_cli.ai.utils.Anthropic") as MockClient:
-            MockClient.return_value.messages.create.side_effect = Exception("API down")
-            with pytest.raises(AIError):
-                audit_profile("profile text", "key")
-
-    def test_unparseable_response_raises(self):
-        resp = mock_anthropic_response("definitely not json")
-        with patch("upwork_cli.ai.utils.Anthropic") as MockClient:
-            MockClient.return_value.messages.create.return_value = resp
-            with pytest.raises(AIError, match="Could not parse audit response"):
-                audit_profile("profile text", "key")
+    def test_unparseable_response_raises(self, use_completer):
+        use_completer(FakeCompleter("definitely not json"))
+        with pytest.raises(AIError, match="Could not parse audit response"):
+            audit_profile("profile text", "key")

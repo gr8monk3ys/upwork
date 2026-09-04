@@ -163,14 +163,15 @@ class TestJobsScore:
         assert "Anthropic API key not configured" in result.output
         assert result.exit_code == 1
 
-    def test_empty_profile_reports_and_exits_zero(
+    def test_empty_profile_reports_and_exits_nonzero(
         self, runner, isolated_config, api_key
     ):
+        """Scoring without a Profile is a failure, not an empty result."""
         init_db()
         _seed_job()
         result = runner.invoke(cli, ["jobs", "score"])
         assert "Profile is empty" in result.output
-        assert result.exit_code == 0
+        assert result.exit_code == 1
 
 
 class TestJobsDetail:
@@ -206,11 +207,12 @@ class TestJobsDetail:
         result = runner.invoke(cli, ["jobs", "detail", "~01abc123"])
         assert "Verified: No" in result.output
 
-    def test_missing_job_reports_and_exits_zero(self, runner, isolated_config):
+    def test_missing_job_reports_and_exits_nonzero(self, runner, isolated_config):
+        """`applications` already exited 1 for the same condition."""
         init_db()
         result = runner.invoke(cli, ["jobs", "detail", "nope"])
         assert "not found in API or local cache" in result.output
-        assert result.exit_code == 0
+        assert result.exit_code == 1
 
     def test_api_result_preferred_over_cache(self, runner, isolated_config):
         init_db()
@@ -288,14 +290,16 @@ class TestJobsSearch:
         assert "Big project" in result.output
         assert "Small gig" not in result.output
 
-    def test_api_failure_is_reported_and_exits_zero(self, runner, isolated_config):
+    def test_api_failure_is_reported_and_exits_nonzero(self, runner, isolated_config):
+        """A failed search stops arriving as "no jobs found"."""
         result = self._run(
             runner,
             ["jobs", "search", "python"],
             search_results=RuntimeError("upstream"),
         )
         assert "API search failed" in result.output
-        assert result.exit_code == 0
+        assert "No jobs found" not in result.output
+        assert result.exit_code == 1
 
     def test_unauthenticated_reports_and_exits_nonzero(self, runner, isolated_config):
         """Was exit 0 until the output module made every failure exit 1."""

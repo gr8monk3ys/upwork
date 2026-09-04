@@ -178,7 +178,7 @@ class TestProposals:
 
         proposals = get_proposals(limit=10)
         assert len(proposals) == 1
-        assert proposals[0]["content"] == "My proposal."
+        assert proposals[0].content == "My proposal."
 
     def test_proposals_ordered_desc(self, isolated_config):
         init_db()
@@ -187,7 +187,7 @@ class TestProposals:
 
         proposals = get_proposals(limit=10)
         assert len(proposals) == 2
-        contents = {p["content"] for p in proposals}
+        contents = {p.content for p in proposals}
         assert contents == {"First", "Second"}
 
 
@@ -200,7 +200,7 @@ class TestProposalLookup:
 
         found = get_proposal(pid)
         assert found is not None
-        assert found["content"] == "Cover letter body"
+        assert found.content == "Cover letter body"
 
     def test_get_proposal_returns_none_when_absent(self, isolated_config):
         init_db()
@@ -219,7 +219,7 @@ class TestProposalLookup:
 
         latest = get_latest_proposal()
         assert latest is not None
-        assert latest["content"] == "newer"
+        assert latest.content == "newer"
 
     def test_latest_proposal_none_when_empty(self, isolated_config):
         init_db()
@@ -235,7 +235,7 @@ class TestBookmarks:
 
         bmarks = get_bookmarks()
         assert len(bmarks) == 1
-        assert bmarks[0]["note"] == "Looks promising"
+        assert bmarks[0].note == "Looks promising"
 
     def test_remove_bookmark(self, isolated_config):
         init_db()

@@ -6,10 +6,10 @@ import pytest
 from click.testing import CliRunner
 
 from tests.conftest import _make_job_posting
+from upwork_cli import pipeline
 from upwork_cli.cli import cli
-from upwork_cli.commands.pipeline import _filter_recent_history
 from upwork_cli.db import (
-    PIPELINE_STAGES,
+    get_connection,
     get_pipeline_history,
     get_pipeline_jobs,
     get_pipeline_stats,
@@ -98,9 +98,9 @@ class TestPipelineDb:
         assert len(all_jobs) == 1
 
     def test_pipeline_stages_constant(self):
-        assert "found" in PIPELINE_STAGES
-        assert "won" in PIPELINE_STAGES
-        assert "lost" in PIPELINE_STAGES
+        assert "found" in pipeline.STAGES
+        assert "won" in pipeline.STAGES
+        assert "lost" in pipeline.STAGES
 
 
 class TestProposalOutcome:
@@ -110,7 +110,7 @@ class TestProposalOutcome:
         mark_proposal_outcome(pid, "won")
         winners = get_winning_proposals()
         assert len(winners) == 1
-        assert winners[0]["outcome"] == "won"
+        assert winners[0].outcome == "won"
 
 
 class TestPipelineCli:
@@ -135,16 +135,26 @@ class TestPipelineCli:
 
 
 class TestPipelineHelpers:
-    def test_recent_history_handles_sqlite_timestamps(self):
-        history = [
-            {"job_id": "~01abc", "moved_at": "2026-03-08 12:00:00"},
-            {"job_id": "~01old", "moved_at": "2026-03-01 12:00:00"},
-        ]
+    def test_recent_history_handles_sqlite_timestamps(self, seeded_db):
+        job = seeded_db
+        set_pipeline_stage(job.id, "found")
+        with get_connection() as conn:
+            conn.execute("UPDATE pipeline_history SET moved_at = '2026-03-08 12:00:00'")
 
-        recent = _filter_recent_history(
-            history,
-            days=1,
-            now=datetime(2026, 3, 8, 12, 30, tzinfo=timezone.utc),
+        recent = pipeline.recent(
+            days=1, now=datetime(2026, 3, 8, 12, 30, tzinfo=timezone.utc)
         )
+        assert [t.job_id for t in recent] == [job.id]
 
-        assert [item["job_id"] for item in recent] == ["~01abc"]
+    def test_a_transition_older_than_the_window_is_left_out(self, seeded_db):
+        job = seeded_db
+        set_pipeline_stage(job.id, "found")
+        with get_connection() as conn:
+            conn.execute("UPDATE pipeline_history SET moved_at = '2026-03-01 12:00:00'")
+
+        assert (
+            pipeline.recent(
+                days=1, now=datetime(2026, 3, 8, 12, 30, tzinfo=timezone.utc)
+            )
+            == []
+        )

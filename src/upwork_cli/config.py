@@ -36,8 +36,14 @@ def _get_secret(key: str) -> str:
     return keyring.get_password(KEYRING_SERVICE, key) or ""
 
 
-def _get_secret_source(key: str) -> str:
-    """Describe where a secret currently resolves from."""
+def secret_source(key: str) -> str:
+    """Describe where a secret currently resolves from.
+
+    Part of the secret store's interface, alongside :func:`set_secret` and
+    :func:`clear_secret`. Reading a secret's *value* is not: that happens
+    through the matching ``Settings`` property, so no caller has to know
+    which of env or keyring answered.
+    """
     env_name = SECRET_ENV_MAP.get(key, "")
     if env_name and os.environ.get(env_name):
         return f"env:{env_name}"
@@ -46,15 +52,20 @@ def _get_secret_source(key: str) -> str:
     return ""
 
 
-def _set_secret(key: str, value: str) -> None:
-    """Store a secret in the system keychain."""
+def set_secret(key: str, value: str) -> None:
+    """Store a secret in the system keychain. An empty value clears it."""
     if value:
         keyring.set_password(KEYRING_SERVICE, key, value)
     else:
-        try:
-            keyring.delete_password(KEYRING_SERVICE, key)
-        except keyring.errors.PasswordDeleteError:
-            pass
+        clear_secret(key)
+
+
+def clear_secret(key: str) -> None:
+    """Remove a secret from the system keychain, if it is there."""
+    try:
+        keyring.delete_password(KEYRING_SERVICE, key)
+    except keyring.errors.PasswordDeleteError:
+        pass
 
 
 def ensure_config_dir() -> Path:
@@ -376,11 +387,11 @@ def save_settings(
     SETTINGS_FILE.write_text(yaml.dump(settings.to_dict(), default_flow_style=False))
     SETTINGS_FILE.chmod(0o600)
     if client_secret is not None:
-        _set_secret("client_secret", client_secret)
+        set_secret("client_secret", client_secret)
     if anthropic_api_key is not None:
-        _set_secret("anthropic_api_key", anthropic_api_key)
+        set_secret("anthropic_api_key", anthropic_api_key)
     if discord_webhook_url is not None:
-        _set_secret("discord_webhook_url", discord_webhook_url)
+        set_secret("discord_webhook_url", discord_webhook_url)
 
 
 def load_settings() -> Settings:
@@ -395,7 +406,7 @@ def load_settings() -> Settings:
     migrated = False
     for secret_key in ("client_secret", "anthropic_api_key", "discord_webhook_url"):
         if data.get(secret_key) and data[secret_key] not in ("", "''"):
-            _set_secret(secret_key, data[secret_key])
+            set_secret(secret_key, data[secret_key])
             del data[secret_key]
             migrated = True
 

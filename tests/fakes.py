@@ -5,6 +5,7 @@
 it. Tests construct one instead of assembling a MagicMock per test.
 """
 
+from collections.abc import Callable
 from typing import Any
 
 
@@ -35,6 +36,8 @@ class FakeUpworkClient:
         offers_for_application: Any = None,
         search_results: Any = None,
         job_detail: Any = None,
+        engagements: Any = None,
+        engagement: Any = None,
     ) -> None:
         self.is_authenticated = authenticated
         self._companies = (
@@ -65,6 +68,11 @@ class FakeUpworkClient:
             else {"data": {"marketplaceJobPostings": {"edges": []}}}
         )
         self._job_detail = job_detail if job_detail is not None else {}
+        self._engagements = (
+            engagements if engagements is not None else {"engagement": []}
+        )
+        self._engagement = engagement if engagement is not None else {}
+        self.submitted: list[Any] = []
         self.earnings_params: list[Any] = []
         self.searches: list[tuple[str, int]] = []
         self.application_queries: list[Any] = []
@@ -85,12 +93,10 @@ class FakeUpworkClient:
     def get_user_info(self) -> Any:
         return self._answer(self._user_info)
 
-    def get_rooms(self, company: str, params: dict[str, Any] | None = None) -> Any:
+    def get_rooms(self, company: str, limit: int = 20) -> Any:
         return self._answer(self._rooms)
 
-    def get_room_messages(
-        self, company: str, room_id: str, params: dict[str, Any] | None = None
-    ) -> Any:
+    def get_room_messages(self, company: str, room_id: str, limit: int = 50) -> Any:
         return self._answer(self._messages)
 
     def get_room_by_contract(
@@ -101,9 +107,12 @@ class FakeUpworkClient:
     # --- the earnings slice of the interface ---
 
     def get_earnings(
-        self, freelancer_ref: str, params: dict[str, Any] | None = None
+        self,
+        freelancer_ref: str,
+        from_date: str | None = None,
+        to_date: str | None = None,
     ) -> Any:
-        self.earnings_params.append(params)
+        self.earnings_params.append((from_date, to_date))
         return self._answer(self._earnings)
 
     # --- the jobs slice of the interface ---
@@ -119,7 +128,17 @@ class FakeUpworkClient:
 
     # --- the applications and offers slice of the interface ---
 
-    def get_applications(self, params: dict[str, Any] | None = None) -> Any:
+    def get_engagements(self, params: dict[str, Any] | None = None) -> Any:
+        return self._answer(self._engagements)
+
+    def get_engagement(self, reference: str) -> Any:
+        return self._answer(self._engagement)
+
+    def submit_work(self, params: dict[str, Any]) -> Any:
+        self.submitted.append(params)
+        return self._answer({"status": "ok"})
+
+    def get_applications(self, **params: Any) -> Any:
         self.application_queries.append(params)
         return self._answer(self._applications)
 
@@ -129,7 +148,7 @@ class FakeUpworkClient:
     def get_offers_for_application(self, reference: str, limit: int = 10) -> Any:
         return self._answer(self._offers_for_application)
 
-    def get_offers(self, params: dict[str, Any] | None = None) -> Any:
+    def get_offers(self, **params: Any) -> Any:
         self.offer_queries.append(params)
         return self._answer(self._offers)
 
@@ -238,6 +257,7 @@ def application_node(
     cover_letter: str = "I would be a great fit.",
     created: str = "2026-09-01T10:00:00Z",
     modified: str = "2026-09-02T10:00:00Z",
+    status_changed: str | None = None,
 ) -> dict[str, Any]:
     """One application as the GraphQL API returns it."""
     return {
@@ -247,7 +267,9 @@ def application_node(
         "auditDetails": {
             "createdDateTime": created,
             "modifiedDateTime": modified,
-            "statusChangedDateTime": modified,
+            "statusChangedDateTime": (
+                modified if status_changed is None else status_changed
+            ),
         },
         "marketplaceJobPosting": {
             "id": "job-1",
@@ -320,3 +342,94 @@ def job_node(
         "createdDateTime": created,
         "client": {"location": {"country": country}, "verificationStatus": "VERIFIED"},
     }
+
+
+def engagement_node(
+    reference: str = "eng-1",
+    *,
+    title: str = "Build an API",
+    status: str = "active",
+    client: str = "Acme Inc",
+    hourly_rate: float | None = 85.0,
+    total_charge: float | None = 4250.0,
+    milestones: Any = None,
+) -> dict[str, Any]:
+    """One engagement as the REST API returns it."""
+    node: dict[str, Any] = {
+        "reference": reference,
+        "job": {"title": title},
+        "status": status,
+        "created_time": "2026-01-15T10:00:00Z",
+        "buyer": {"company_name": client},
+        "hourly_charge_rate": {"amount": hourly_rate},
+        "hours_per_week": 20,
+        "total_charge": {"amount": total_charge},
+    }
+    if milestones is not None:
+        node["milestones"] = milestones
+    return node
+
+
+def milestone_node(
+    description: str = "Phase one",
+    *,
+    amount: float = 1000.0,
+    status: str = "funded",
+) -> dict[str, Any]:
+    """One fixed-price milestone as the REST API returns it."""
+    return {"description": description, "amount": amount, "status": status}
+
+
+class FakeCompleter:
+    """The second adapter at the AI seam.
+
+    Substituted for ``ai.utils.get_completer``'s product, the way
+    ``FakeUpworkClient`` is substituted for ``get_client``'s. Tests used to
+    patch the vendor class ``ai.utils.Anthropic`` and hand-build
+    ``MagicMock`` response objects and ``anthropic.AuthenticationError``
+    instances -- reaching past ``complete`` into its implementation.
+
+    Pass ``error`` to make every call raise it. Pass several ``responses`` to
+    answer successive calls; the last one repeats. Pass ``responder`` to
+    answer based on the prompt, for batch runs where each call differs.
+    """
+
+    def __init__(
+        self,
+        *responses: str,
+        error: Exception | None = None,
+        responder: "Callable[[str], str] | None" = None,
+    ) -> None:
+        self._responses = list(responses) or [""]
+        self._error = error
+        self._responder = responder
+        self.calls: list[dict[str, Any]] = []
+
+    def __call__(
+        self,
+        *,
+        prompt: str,
+        model: str,
+        system: str | None = None,
+        max_tokens: int = 2048,
+    ) -> str:
+        self.calls.append(
+            {
+                "prompt": prompt,
+                "model": model,
+                "system": system,
+                "max_tokens": max_tokens,
+            }
+        )
+        if self._error is not None:
+            raise self._error
+        if self._responder is not None:
+            return self._responder(prompt)
+        if len(self._responses) > 1:
+            return self._responses.pop(0)
+        return self._responses[0]
+
+    @property
+    def prompt(self) -> str:
+        """The prompt of the most recent call."""
+        return self.calls[-1]["prompt"]

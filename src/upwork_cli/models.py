@@ -208,6 +208,93 @@ class JobPosting:
 
 
 @dataclass
+class Bookmark:
+    """A Job the freelancer set aside, with their note on why.
+
+    Carries the Job's title and budget because the listing shows them and
+    the bookmark row is read by a join that already has them.
+    """
+
+    job_id: str
+    note: str = ""
+    bookmarked_at: str = ""
+    title: str = ""
+    budget_amount: float | None = None
+    budget_currency: str = "USD"
+
+    @classmethod
+    def from_db_row(cls, row: Any) -> "Bookmark":
+        row = dict(row)
+        return cls(
+            job_id=row["job_id"],
+            note=row.get("note") or "",
+            bookmarked_at=row.get("bookmarked_at") or "",
+            title=row.get("title") or "",
+            budget_amount=_to_float(row.get("budget_amount")),
+            budget_currency=row.get("budget_currency") or "USD",
+        )
+
+
+#: What became of a Proposal. ``None`` until the freelancer records one --
+#: an unrecorded Proposal is not a lost one.
+OUTCOMES = ("won", "lost", "no_response")
+
+
+@dataclass
+class Proposal:
+    """A cover letter drafted locally for a Job.
+
+    Owned by this tool, never by Upwork: their terms forbid submitting one
+    through the API, so a Proposal is always copied out and sent by hand.
+    Distinct from an Application, which is a Proposal already submitted and
+    read back from Upwork.
+
+    ``outcome`` is None until the freelancer records one, and stays None for
+    a Proposal that was never sent.
+    """
+
+    id: int
+    job_id: str = ""
+    job_title: str = ""
+    content: str = ""
+    tone: str = "professional"
+    created_at: str = ""
+    outcome: str | None = None
+
+    @classmethod
+    def from_db_row(cls, row: Any) -> "Proposal":
+        """Rebuild a Proposal from its stored row.
+
+        Lenient in the same way as :meth:`JobPosting.from_db_row`: only
+        ``id`` is required, because ``MIGRATIONS`` adds columns to databases
+        that already exist. Accepts a mapping or a ``sqlite3.Row``.
+        """
+        row = dict(row)
+        return cls(
+            id=int(row["id"]),
+            job_id=row.get("job_id") or "",
+            job_title=row.get("job_title") or "",
+            content=row.get("content") or "",
+            tone=row.get("tone") or "professional",
+            created_at=row.get("created_at") or "",
+            outcome=row.get("outcome") or None,
+        )
+
+    @property
+    def title(self) -> str:
+        """The Job's title, or a stand-in.
+
+        Every caller defaulted this itself, and two of them disagreed about
+        what the default was.
+        """
+        return self.job_title or "Untitled"
+
+    @property
+    def is_won(self) -> bool:
+        return self.outcome == "won"
+
+
+@dataclass
 class ScoreResult:
     """The outcome of one attempt to score a Job against the Profile.
 
@@ -388,6 +475,36 @@ class Contract:
             total_hours=data.get("hours_per_week"),
             total_charge=data.get("total_charge", {}).get("amount"),
         )
+
+
+@dataclass
+class Milestone:
+    """One funded step of a fixed-price Contract."""
+
+    description: str = "Untitled"
+    amount: float | None = None
+    status: str = ""
+
+    @classmethod
+    def from_api(cls, data: dict[str, Any]) -> "Milestone":
+        return cls(
+            description=data.get("description") or data.get("title") or "Untitled",
+            amount=_to_float(data.get("amount")),
+            status=data.get("status") or data.get("state") or "",
+        )
+
+
+@dataclass
+class ContractDetail:
+    """A Contract together with the Milestones its detail payload carried.
+
+    Milestones get their own pairing rather than a field on ``Contract``
+    because the engagements *list* cannot answer what a Contract's milestones
+    are; an empty list there would be a lie rather than an absence.
+    """
+
+    contract: Contract
+    milestones: list["Milestone"] = field(default_factory=list)
 
 
 @dataclass

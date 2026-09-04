@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from typing import Any
 
 from upwork_cli.config import DB_FILE, ensure_config_dir
-from upwork_cli.models import JobPosting
+from upwork_cli.models import Bookmark, JobPosting, Proposal
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -72,8 +72,6 @@ CREATE TABLE IF NOT EXISTS pipeline_history (
     moved_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 """
-
-PIPELINE_STAGES = ("found", "drafted", "applied", "interviewing", "won", "lost")
 
 MIGRATIONS = [
     "ALTER TABLE proposals ADD COLUMN outcome TEXT DEFAULT NULL",
@@ -175,40 +173,40 @@ def remove_bookmark(job_id: str) -> None:
         conn.execute("DELETE FROM bookmarks WHERE job_id = ?", (job_id,))
 
 
-def get_bookmarks() -> list[dict[str, Any]]:
+def get_bookmarks() -> list[Bookmark]:
     with get_connection() as conn:
         rows = conn.execute(
             """SELECT b.job_id, b.note, b.bookmarked_at, j.title, j.budget_amount, j.budget_currency
             FROM bookmarks b LEFT JOIN jobs j ON b.job_id = j.id
             ORDER BY b.bookmarked_at DESC"""
         ).fetchall()
-        return [dict(r) for r in rows]
+        return [Bookmark.from_db_row(r) for r in rows]
 
 
-def get_proposal(proposal_id: int) -> dict[str, Any | None]:
-    """Look up a single stored proposal, or None if there is no such id."""
+def get_proposal(proposal_id: int) -> Proposal | None:
+    """Look up a single stored Proposal, or None if there is no such id."""
     with get_connection() as conn:
         row = conn.execute(
             "SELECT * FROM proposals WHERE id = ?", (proposal_id,)
         ).fetchone()
-        return dict(row) if row else None
+        return Proposal.from_db_row(row) if row else None
 
 
-def get_latest_proposal() -> dict[str, Any | None]:
-    """Return the most recently created proposal, or None if there are none."""
+def get_latest_proposal() -> Proposal | None:
+    """The most recently created Proposal, or None if there are none."""
     with get_connection() as conn:
         row = conn.execute(
             "SELECT * FROM proposals ORDER BY created_at DESC LIMIT 1"
         ).fetchone()
-        return dict(row) if row else None
+        return Proposal.from_db_row(row) if row else None
 
 
-def get_proposals(limit: int = 20) -> list[dict[str, Any]]:
+def get_proposals(limit: int = 20) -> list[Proposal]:
     with get_connection() as conn:
         rows = conn.execute(
             "SELECT * FROM proposals ORDER BY created_at DESC LIMIT ?", (limit,)
         ).fetchall()
-        return [dict(r) for r in rows]
+        return [Proposal.from_db_row(r) for r in rows]
 
 
 def mark_seen(job_id: str, search_term: str) -> None:
@@ -389,10 +387,10 @@ def mark_proposal_outcome(proposal_id: int, outcome: str) -> None:
         )
 
 
-def get_winning_proposals() -> list[dict[str, Any]]:
-    """Get all proposals marked as 'won'."""
+def get_winning_proposals() -> list[Proposal]:
+    """Every Proposal whose recorded Outcome is ``won``."""
     with get_connection() as conn:
         rows = conn.execute(
             "SELECT * FROM proposals WHERE outcome = 'won' ORDER BY created_at DESC"
         ).fetchall()
-        return [dict(r) for r in rows]
+        return [Proposal.from_db_row(r) for r in rows]
