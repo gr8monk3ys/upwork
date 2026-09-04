@@ -150,14 +150,23 @@ def _authorize(settings) -> None:
         auth_url = client.get_authorization_url()
 
         console.print(
-            "\nOpening authorization URL in your browser...\n"
-            f"[link={auth_url}]{auth_url}[/link]"
+            "\nOpening this authorization URL in your browser:\n"
+            f"[dim][link={auth_url}]{auth_url}[/link][/dim]"
         )
         webbrowser.open(auth_url)
 
-        callback_url = click.prompt(
-            "\nAfter authorizing, paste the full callback URL here"
+        console.print(
+            "\n[bold]What happens next:[/bold]\n"
+            "  1. Approve the request in the browser.\n"
+            "  2. It will try to load [bold]localhost:8080[/bold] and fail to "
+            "connect.\n     [bold]That failure is expected[/bold] — nothing is "
+            "listening there.\n"
+            "  3. Copy the URL out of the address bar at that point.\n"
+            "\n[dim]It looks like: "
+            "https://localhost:8080/callback?code=...&state=...[/dim]"
         )
+
+        callback_url = click.prompt("\nPaste that URL here")
         client.complete_auth(callback_url)
 
         console.print("\n[green bold]Authentication successful![/green bold]")
@@ -178,6 +187,10 @@ def _authorize(settings) -> None:
         except Exception:
             console.print("Authenticated (could not fetch user details).")
 
+    except ValueError as exc:
+        # The URL was wrong, not the authorization. Say which.
+        output.warn(str(exc))
+        output.fail("Run [bold]upwork config login[/bold] again to retry.")
     except Exception as exc:
         console.print("You can retry with [bold]upwork config login[/bold] later.")
         output.fail(f"OAuth error: {exc}")

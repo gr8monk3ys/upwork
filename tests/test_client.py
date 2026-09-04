@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from upwork_cli.client import UpworkClient
+from upwork_cli.client import UpworkClient, check_callback_url
 from upwork_cli.config import AuthToken, Settings
 
 
@@ -198,3 +198,59 @@ class TestOfferQuery:
             client.get_offers()
             variables = graphql.call_args.args[1]
         assert "commonFilter" not in variables.get("filter", {})
+
+
+class TestCallbackUrlGuidance:
+    """Pasting the authorize URL back is the mistake this flow invites.
+
+    Upwork answers it with "(missing_code) Missing code parameter in
+    response", which names what is absent but not what to do about it.
+    """
+
+    AUTHORIZE = (
+        "https://www.upwork.com/ab/account-security/oauth2/authorize"
+        "?response_type=code&client_id=abc"
+        "&redirect_uri=https%3A%2F%2Flocalhost%3A8080%2Fcallback&state=xyz"
+    )
+    CALLBACK = "https://localhost:8080/callback?code=abc123&state=xyz"
+
+    def test_a_real_callback_passes(self):
+        check_callback_url(self.CALLBACK)  # does not raise
+
+    def test_the_authorize_url_is_named_as_such(self):
+        with pytest.raises(ValueError, match="authorization URL, not the callback"):
+            check_callback_url(self.AUTHORIZE)
+
+    def test_the_expected_connection_failure_is_explained(self):
+        """The browser failing to reach localhost:8080 is the success case."""
+        with pytest.raises(ValueError) as exc:
+            check_callback_url(self.AUTHORIZE)
+        assert "expected" in str(exc.value)
+        assert "address bar" in str(exc.value)
+
+    def test_a_denied_authorization_says_so(self):
+        with pytest.raises(
+            ValueError, match="refused the authorization: access_denied"
+        ):
+            check_callback_url("https://localhost:8080/callback?error=access_denied")
+
+    def test_an_unrelated_url_is_refused(self):
+        with pytest.raises(ValueError, match="no `code=` parameter"):
+            check_callback_url("https://example.com/")
+
+    def test_an_empty_paste_is_refused(self):
+        with pytest.raises(ValueError, match="No URL given"):
+            check_callback_url("   ")
+
+    def test_surrounding_whitespace_is_tolerated(self):
+        check_callback_url(f"  {self.CALLBACK}  ")
+
+    def test_complete_auth_refuses_before_calling_upwork(self, client):
+        """The check runs first, so a bad paste costs no network round trip."""
+        sdk = MagicMock()
+        with (
+            patch.object(client, "_ensure_client", return_value=sdk),
+            pytest.raises(ValueError),
+        ):
+            client.complete_auth(self.AUTHORIZE)
+        assert sdk.get_access_token.call_count == 0
