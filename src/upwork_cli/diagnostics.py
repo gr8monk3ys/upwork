@@ -15,9 +15,12 @@ from typing import Any
 
 from upwork_cli import applications, contracts, earnings, jobs, messaging
 from upwork_cli.client import (
+    CREDENTIALS_DEAD,
+    CREDENTIALS_OK,
+    CREDENTIALS_UNKNOWN,
     NotAuthenticated,
     UpworkClient,
-    client_registration_error,
+    check_client_registration,
     get_client,
 )
 from upwork_cli.config import load_profile, load_settings
@@ -61,14 +64,23 @@ def _upwork_credentials(settings) -> Check:
     checking only that it is set reports "ok" for credentials Upwork will
     refuse -- and the refusal then surfaces at the end of a browser round
     trip, where it reads like the user mis-copied something.
+
+    But Upwork is behind Cloudflare and usually answers a programmatic
+    request with a challenge rather than an answer, so "could not tell" is
+    reported as `skipped`, never as a failure.
     """
     if not settings.client_id or not settings.client_secret:
         return Check("Upwork credentials", FAILED, "run 'upwork config setup'")
 
-    problem = client_registration_error(settings.client_id, settings.redirect_uri)
-    if problem:
-        return Check("Upwork credentials", FAILED, problem)
-    return Check("Upwork credentials", OK, "recognised by Upwork")
+    verdict, detail = check_client_registration(
+        settings.client_id, settings.redirect_uri
+    )
+    status = {
+        CREDENTIALS_OK: OK,
+        CREDENTIALS_DEAD: FAILED,
+        CREDENTIALS_UNKNOWN: SKIPPED,
+    }[verdict]
+    return Check("Upwork credentials", status, detail)
 
 
 def configuration() -> list[Check]:

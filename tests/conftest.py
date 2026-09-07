@@ -242,8 +242,13 @@ def no_credential_probe(monkeypatch):
     reachable, so the probe reports "recognised" unless a test says
     otherwise. Tests for the probe itself patch `urlopen` directly.
     """
+    from upwork_cli.client import CREDENTIALS_OK
+
     for target in (
-        "upwork_cli.diagnostics.client_registration_error",
-        "upwork_cli.commands.config.client_registration_error",
+        "upwork_cli.diagnostics.check_client_registration",
+        "upwork_cli.commands.config.check_client_registration",
     ):
-        monkeypatch.setattr(target, lambda client_id, redirect_uri: "")
+        monkeypatch.setattr(
+            target,
+            lambda client_id, redirect_uri: (CREDENTIALS_OK, "recognised by Upwork"),
+        )

@@ -11,7 +11,11 @@ from rich.table import Table
 
 from upwork_cli import output
 from upwork_cli.ai.utils import require_api_key
-from upwork_cli.client import UpworkClient, client_registration_error
+from upwork_cli.client import (
+    CREDENTIALS_DEAD,
+    UpworkClient,
+    check_client_registration,
+)
 from upwork_cli.config import (
     AUTH_FILE,
     DB_FILE,
@@ -149,9 +153,11 @@ def _authorize(settings) -> None:
     # Check the key before spending a browser round trip on it. A disabled
     # key otherwise surfaces as "Client not found or disabled" on the Upwork
     # page, which reads like the user did something wrong.
-    problem = client_registration_error(settings.client_id, settings.redirect_uri)
-    if problem:
-        output.fail(problem)
+    verdict, detail = check_client_registration(
+        settings.client_id, settings.redirect_uri
+    )
+    if verdict == CREDENTIALS_DEAD:
+        output.fail(detail)
 
     try:
         client = UpworkClient(settings=settings)

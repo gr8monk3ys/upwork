@@ -207,19 +207,17 @@ class TestConfigLogin:
 
 
 class TestCredentialsAreVerifiedNotAssumed:
-    def test_a_disabled_key_fails_the_check(self, isolated_config, monkeypatch):
-        """The real case: 32 valid-looking hex characters Upwork refuses."""
-        _configured(monkeypatch)
+    def _verdict(self, monkeypatch, verdict, detail):
         monkeypatch.setattr(
-            "upwork_cli.diagnostics.client_registration_error",
-            lambda client_id, redirect_uri: (
-                "Upwork does not recognise this client id — the API key has "
-                "been disabled or deleted."
-            ),
+            "upwork_cli.diagnostics.check_client_registration",
+            lambda client_id, redirect_uri: (verdict, detail),
         )
+
+    def test_a_disabled_key_fails_the_check(self, isolated_config, monkeypatch):
+        _configured(monkeypatch)
+        self._verdict(monkeypatch, "dead", "the API key has been disabled")
         checks = {c.name: c for c in diagnostics.configuration()}
         assert checks["Upwork credentials"].failed
-        assert "does not recognise" in checks["Upwork credentials"].detail
 
     def test_a_live_key_says_recognised_rather_than_present(
         self, isolated_config, monkeypatch
@@ -229,13 +227,34 @@ class TestCredentialsAreVerifiedNotAssumed:
         assert checks["Upwork credentials"].status == diagnostics.OK
         assert checks["Upwork credentials"].detail == "recognised by Upwork"
 
+    def test_an_unverifiable_key_is_skipped_not_failed(
+        self, isolated_config, monkeypatch
+    ):
+        """Cloudflare blocks the check far more often than a key is revoked.
+        Reporting "could not tell" as a failure would send someone to
+        regenerate credentials that were fine."""
+        _configured(monkeypatch)
+        self._verdict(monkeypatch, "unknown", "Upwork served a bot challenge")
+        check = {c.name: c for c in diagnostics.configuration()}["Upwork credentials"]
+        assert check.status == diagnostics.SKIPPED
+        assert not check.failed
+
+    def test_an_unverifiable_key_does_not_fail_doctor(
+        self, runner, isolated_config, monkeypatch, healthy_client
+    ):
+        _configured(monkeypatch)
+        self._verdict(monkeypatch, "unknown", "Upwork served a bot challenge")
+        monkeypatch.setattr("upwork_cli.diagnostics.get_client", lambda: healthy_client)
+        result = runner.invoke(cli, ["doctor", "--no-ai"])
+        assert result.exit_code == 0, result.output
+
     def test_absent_credentials_do_not_hit_the_network(
         self, isolated_config, monkeypatch
     ):
         def fail(*_a, **_k):
             raise AssertionError("should not probe without credentials")
 
-        monkeypatch.setattr("upwork_cli.diagnostics.client_registration_error", fail)
+        monkeypatch.setattr("upwork_cli.diagnostics.check_client_registration", fail)
         checks = {c.name: c for c in diagnostics.configuration()}
         assert checks["Upwork credentials"].failed
         assert "config setup" in checks["Upwork credentials"].detail

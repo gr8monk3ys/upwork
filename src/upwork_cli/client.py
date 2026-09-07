@@ -623,21 +623,37 @@ def check_callback_url(url: str) -> None:
 
 AUTHORIZE_ENDPOINT = "https://www.upwork.com/ab/account-security/oauth2/authorize"
 
+#: What the credential probe concluded.
+CREDENTIALS_OK = "ok"
+CREDENTIALS_DEAD = "dead"
+CREDENTIALS_UNKNOWN = "unknown"
 
-def client_registration_error(client_id: str, redirect_uri: str) -> str:
+#: Upwork sits behind Cloudflare, which serves a challenge page to anything
+#: that is not a browser. That page is an HTTP 403 whose body contains the
+#: word "disabled" -- as the CSS variable `--bg-disabled`. Both are traps: a
+#: status check reads the challenge as a refusal, and a substring check for
+#: "disabled" matches a stylesheet.
+_CHALLENGE_MARKERS = ("challenge - upwork", "cf-chl", "cf_chl", "__cf_bm")
+
+#: The phrase Upwork actually shows for a revoked or deleted app.
+_DEAD_MARKERS = ("client not found or disabled", "invalid_client")
+
+
+def check_client_registration(client_id: str, redirect_uri: str) -> tuple[str, str]:
     """Ask Upwork whether it still recognises this OAuth app.
 
-    Returns an empty string when the app is live, and a description of the
-    problem when it is not.
+    Returns ``(verdict, detail)`` where verdict is one of
+    :data:`CREDENTIALS_OK`, :data:`CREDENTIALS_DEAD` or
+    :data:`CREDENTIALS_UNKNOWN`.
 
-    Worth the network call because the local checks cannot see this: a
-    revoked or disabled key is still 32 hex characters, so "client id and
-    secret present" stays true right up until Upwork answers
-    "Client not found or disabled" -- at the end of a browser round trip,
-    where it reads like the user did something wrong.
+    UNKNOWN is the common answer and is deliberately not a failure. Upwork is
+    behind Cloudflare, so a programmatic request usually gets a challenge page
+    rather than an answer, and "I could not tell" must never be reported as
+    "your key is revoked" -- that sends someone to regenerate working
+    credentials.
     """
     if not client_id:
-        return "no client id configured"
+        return CREDENTIALS_DEAD, "no client id configured"
 
     query = urlencode(
         {
@@ -652,27 +668,26 @@ def client_registration_error(client_id: str, redirect_uri: str) -> str:
     )
     try:
         with urlopen(request, timeout=15) as response:
-            body = response.read(20000).decode("utf-8", "replace")
-            status = response.status
+            body = response.read(400_000).decode("utf-8", "replace")
     except HTTPError as exc:
-        body = exc.read(20000).decode("utf-8", "replace") if exc.fp else ""
-        status = exc.code
+        body = exc.read(400_000).decode("utf-8", "replace") if exc.fp else ""
     except URLError as exc:
-        return f"could not reach Upwork to check ({exc.reason})"
+        return CREDENTIALS_UNKNOWN, f"could not reach Upwork ({exc.reason})"
 
     lowered = body.lower()
-    if "client not found or disabled" in lowered or "invalid_client" in lowered:
-        return (
+
+    if any(marker in lowered for marker in _CHALLENGE_MARKERS):
+        return CREDENTIALS_UNKNOWN, (
+            "Upwork served a bot challenge, so the key could not be checked "
+            "from here. Only the browser can tell."
+        )
+    if any(marker in lowered for marker in _DEAD_MARKERS):
+        return CREDENTIALS_DEAD, (
             "Upwork does not recognise this client id — the API key has been "
             "disabled or deleted. Create a new one at "
             "https://www.upwork.com/developer/keys and run 'upwork config setup'."
         )
-    if status >= 400:
-        return (
-            f"Upwork refused the authorize request (HTTP {status}). The API key "
-            "may be disabled; check https://www.upwork.com/developer/keys."
-        )
-    return ""
+    return CREDENTIALS_OK, "recognised by Upwork"
 
 
 class NotAuthenticated(RuntimeError):
