@@ -14,7 +14,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from upwork_cli import applications, contracts, earnings, jobs, messaging
-from upwork_cli.client import NotAuthenticated, UpworkClient, get_client
+from upwork_cli.client import (
+    NotAuthenticated,
+    UpworkClient,
+    client_registration_error,
+    get_client,
+)
 from upwork_cli.config import load_profile, load_settings
 
 #: What a check found. ``skipped`` is not a failure: an account with no
@@ -49,18 +54,29 @@ def _plural(items: Any, noun: str) -> str:
     return f"{count} {noun}{'' if count == 1 else 's'}"
 
 
+def _upwork_credentials(settings) -> Check:
+    """Whether Upwork still recognises the configured API key.
+
+    Presence is not validity. A revoked key is still 32 hex characters, so
+    checking only that it is set reports "ok" for credentials Upwork will
+    refuse -- and the refusal then surfaces at the end of a browser round
+    trip, where it reads like the user mis-copied something.
+    """
+    if not settings.client_id or not settings.client_secret:
+        return Check("Upwork credentials", FAILED, "run 'upwork config setup'")
+
+    problem = client_registration_error(settings.client_id, settings.redirect_uri)
+    if problem:
+        return Check("Upwork credentials", FAILED, problem)
+    return Check("Upwork credentials", OK, "recognised by Upwork")
+
+
 def configuration() -> list[Check]:
     """What is set up locally, before any network call."""
     settings = load_settings()
     profile = load_profile()
     checks = [
-        Check(
-            "Upwork credentials",
-            OK if settings.client_id and settings.client_secret else FAILED,
-            "client id and secret present"
-            if settings.client_id and settings.client_secret
-            else "run 'upwork config setup'",
-        ),
+        _upwork_credentials(settings),
         Check(
             "Anthropic API key",
             OK if settings.anthropic_api_key else SKIPPED,
