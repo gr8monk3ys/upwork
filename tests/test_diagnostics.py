@@ -204,3 +204,38 @@ class TestConfigLogin:
         assert result.exit_code == 1
         assert "not configured" in result.output
         assert "config setup" in result.output
+
+
+class TestCredentialsAreVerifiedNotAssumed:
+    def test_a_disabled_key_fails_the_check(self, isolated_config, monkeypatch):
+        """The real case: 32 valid-looking hex characters Upwork refuses."""
+        _configured(monkeypatch)
+        monkeypatch.setattr(
+            "upwork_cli.diagnostics.client_registration_error",
+            lambda client_id, redirect_uri: (
+                "Upwork does not recognise this client id — the API key has "
+                "been disabled or deleted."
+            ),
+        )
+        checks = {c.name: c for c in diagnostics.configuration()}
+        assert checks["Upwork credentials"].failed
+        assert "does not recognise" in checks["Upwork credentials"].detail
+
+    def test_a_live_key_says_recognised_rather_than_present(
+        self, isolated_config, monkeypatch
+    ):
+        _configured(monkeypatch)
+        checks = {c.name: c for c in diagnostics.configuration()}
+        assert checks["Upwork credentials"].status == diagnostics.OK
+        assert checks["Upwork credentials"].detail == "recognised by Upwork"
+
+    def test_absent_credentials_do_not_hit_the_network(
+        self, isolated_config, monkeypatch
+    ):
+        def fail(*_a, **_k):
+            raise AssertionError("should not probe without credentials")
+
+        monkeypatch.setattr("upwork_cli.diagnostics.client_registration_error", fail)
+        checks = {c.name: c for c in diagnostics.configuration()}
+        assert checks["Upwork credentials"].failed
+        assert "config setup" in checks["Upwork credentials"].detail

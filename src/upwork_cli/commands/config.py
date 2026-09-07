@@ -11,7 +11,7 @@ from rich.table import Table
 
 from upwork_cli import output
 from upwork_cli.ai.utils import require_api_key
-from upwork_cli.client import UpworkClient
+from upwork_cli.client import UpworkClient, client_registration_error
 from upwork_cli.config import (
     AUTH_FILE,
     DB_FILE,
@@ -145,6 +145,14 @@ def _authorize(settings) -> None:
     only `setup` needs the credential prompts that precede it.
     """
     console.print("\n[bold cyan]Upwork OAuth2 Authorization[/bold cyan]")
+
+    # Check the key before spending a browser round trip on it. A disabled
+    # key otherwise surfaces as "Client not found or disabled" on the Upwork
+    # page, which reads like the user did something wrong.
+    problem = client_registration_error(settings.client_id, settings.redirect_uri)
+    if problem:
+        output.fail(problem)
+
     try:
         client = UpworkClient(settings=settings)
         auth_url = client.get_authorization_url()

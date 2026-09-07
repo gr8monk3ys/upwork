@@ -231,3 +231,19 @@ def use_completer(monkeypatch):
         return fake
 
     return install
+
+
+@pytest.fixture(autouse=True)
+def no_credential_probe(monkeypatch):
+    """Keep the credential check off the network by default.
+
+    `diagnostics` asks Upwork whether it still recognises the API key, which
+    is a real HTTP request. No test may depend on upwork.com being
+    reachable, so the probe reports "recognised" unless a test says
+    otherwise. Tests for the probe itself patch `urlopen` directly.
+    """
+    for target in (
+        "upwork_cli.diagnostics.client_registration_error",
+        "upwork_cli.commands.config.client_registration_error",
+    ):
+        monkeypatch.setattr(target, lambda client_id, redirect_uri: "")

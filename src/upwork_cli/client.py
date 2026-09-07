@@ -2,7 +2,9 @@
 
 from datetime import datetime
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.error import HTTPError, URLError
+from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.request import Request, urlopen
 
 import upwork
 from upwork.routers import auth as upwork_auth
@@ -617,6 +619,60 @@ def check_callback_url(url: str) -> None:
         "The one you want looks like "
         "https://localhost:8080/callback?code=...&state=..."
     )
+
+
+AUTHORIZE_ENDPOINT = "https://www.upwork.com/ab/account-security/oauth2/authorize"
+
+
+def client_registration_error(client_id: str, redirect_uri: str) -> str:
+    """Ask Upwork whether it still recognises this OAuth app.
+
+    Returns an empty string when the app is live, and a description of the
+    problem when it is not.
+
+    Worth the network call because the local checks cannot see this: a
+    revoked or disabled key is still 32 hex characters, so "client id and
+    secret present" stays true right up until Upwork answers
+    "Client not found or disabled" -- at the end of a browser round trip,
+    where it reads like the user did something wrong.
+    """
+    if not client_id:
+        return "no client id configured"
+
+    query = urlencode(
+        {
+            "response_type": "code",
+            "client_id": client_id,
+            "redirect_uri": redirect_uri or "https://localhost:8080/callback",
+        }
+    )
+    request = Request(
+        f"{AUTHORIZE_ENDPOINT}?{query}",
+        headers={"User-Agent": "upwork-cli/0.1 (credential check)"},
+    )
+    try:
+        with urlopen(request, timeout=15) as response:
+            body = response.read(20000).decode("utf-8", "replace")
+            status = response.status
+    except HTTPError as exc:
+        body = exc.read(20000).decode("utf-8", "replace") if exc.fp else ""
+        status = exc.code
+    except URLError as exc:
+        return f"could not reach Upwork to check ({exc.reason})"
+
+    lowered = body.lower()
+    if "client not found or disabled" in lowered or "invalid_client" in lowered:
+        return (
+            "Upwork does not recognise this client id — the API key has been "
+            "disabled or deleted. Create a new one at "
+            "https://www.upwork.com/developer/keys and run 'upwork config setup'."
+        )
+    if status >= 400:
+        return (
+            f"Upwork refused the authorize request (HTTP {status}). The API key "
+            "may be disabled; check https://www.upwork.com/developer/keys."
+        )
+    return ""
 
 
 class NotAuthenticated(RuntimeError):
