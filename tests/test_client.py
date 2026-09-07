@@ -12,9 +12,12 @@ from urllib.error import HTTPError, URLError
 import pytest
 
 from upwork_cli.client import (
+    CREDENTIALS_DEAD,
+    CREDENTIALS_OK,
+    CREDENTIALS_UNKNOWN,
     UpworkClient,
     check_callback_url,
-    client_registration_error,
+    check_client_registration,
 )
 from upwork_cli.config import AuthToken, Settings
 
@@ -263,15 +266,20 @@ class TestCallbackUrlGuidance:
 
 
 class TestClientRegistrationCheck:
-    """A revoked key is still 32 hex characters.
+    """Upwork sits behind Cloudflare, which answers a programmatic request
+    with a challenge page: HTTP 403, and the word "disabled" present as the
+    CSS variable `--bg-disabled`. A status check reads that as a refusal and
+    a substring check matches the stylesheet, so the first version of this
+    reported a revoked key for every healthy one."""
 
-    Checking only that a client id is set reported "ok" for credentials
-    Upwork refuses, and the refusal then surfaced at the end of a browser
-    round trip as "Client not found or disabled" — where it reads like the
-    user mis-copied something rather than like a dead API key.
-    """
+    CHALLENGE = (
+        "<html><head><title>Challenge - Upwork</title></head>"
+        "<style>:root{--bg-disabled:var(--gray-80)}</style></html>"
+    )
+    DEAD = "<html><h1>Client not found or disabled</h1></html>"
+    LIVE = "<html><h1>Authorize this application</h1></html>"
 
-    def _responds(self, monkeypatch, body: str = "", status: int = 200):
+    def _responds(self, monkeypatch, body: str, status: int = 200):
         class Response:
             def __init__(self):
                 self.status = status
@@ -287,50 +295,55 @@ class TestClientRegistrationCheck:
 
         monkeypatch.setattr("upwork_cli.client.urlopen", lambda *a, **k: Response())
 
-    def test_a_live_app_reports_no_problem(self, monkeypatch):
-        self._responds(monkeypatch, "<html>Authorize this application</html>")
-        assert client_registration_error("abc123", "https://localhost:8080/cb") == ""
+    def test_a_cloudflare_challenge_is_unknown_not_dead(self, monkeypatch):
+        """The bug that shipped: this used to say "your API key is disabled"."""
+        self._responds(monkeypatch, self.CHALLENGE, 403)
+        verdict, detail = check_client_registration("abc", "https://cb")
+        assert verdict == CREDENTIALS_UNKNOWN
+        assert "bot challenge" in detail
+        assert "disabled or deleted" not in detail
 
-    def test_a_disabled_app_is_named_with_the_remedy(self, monkeypatch):
-        """The exact phrase Upwork returned for the dead key."""
-        self._responds(monkeypatch, "<h1>Client not found or disabled</h1>", 403)
-        problem = client_registration_error("abc123", "https://localhost:8080/cb")
-        assert "does not recognise this client id" in problem
-        assert "developer/keys" in problem
+    def test_the_css_variable_alone_does_not_mean_disabled(self, monkeypatch):
+        """`--bg-disabled` in a stylesheet is not a revoked key."""
+        self._responds(monkeypatch, "<style>--bg-disabled:#fff</style>", 200)
+        verdict, _ = check_client_registration("abc", "https://cb")
+        assert verdict == CREDENTIALS_OK
 
-    def test_invalid_client_is_treated_the_same(self, monkeypatch):
+    def test_a_genuinely_dead_key_is_named_with_the_remedy(self, monkeypatch):
+        self._responds(monkeypatch, self.DEAD, 403)
+        verdict, detail = check_client_registration("abc", "https://cb")
+        assert verdict == CREDENTIALS_DEAD
+        assert "developer/keys" in detail
+
+    def test_invalid_client_counts_as_dead(self, monkeypatch):
         self._responds(monkeypatch, '{"error":"invalid_client"}', 401)
-        assert "does not recognise" in client_registration_error("abc", "https://cb")
+        assert check_client_registration("abc", "https://cb")[0] == CREDENTIALS_DEAD
 
-    def test_another_refusal_still_points_at_the_key(self, monkeypatch):
-        self._responds(monkeypatch, "<html>nope</html>", 500)
-        problem = client_registration_error("abc123", "https://localhost:8080/cb")
-        assert "HTTP 500" in problem
-        assert "developer/keys" in problem
+    def test_a_live_app_is_recognised(self, monkeypatch):
+        self._responds(monkeypatch, self.LIVE)
+        assert check_client_registration("abc", "https://cb")[0] == CREDENTIALS_OK
 
-    def test_an_http_error_body_is_still_inspected(self, monkeypatch):
-        def raise_http(*_a, **_k):
-            raise HTTPError(
-                "url", 403, "Forbidden", {}, io.BytesIO(b"Client not found or disabled")
-            )
-
-        monkeypatch.setattr("upwork_cli.client.urlopen", raise_http)
-        assert "does not recognise" in client_registration_error("abc", "https://cb")
-
-    def test_an_unreachable_upwork_is_not_a_dead_key(self, monkeypatch):
-        """Being offline must not be reported as revoked credentials."""
-
+    def test_an_unreachable_upwork_is_unknown_not_dead(self, monkeypatch):
         def raise_url(*_a, **_k):
             raise URLError("Name or service not known")
 
         monkeypatch.setattr("upwork_cli.client.urlopen", raise_url)
-        problem = client_registration_error("abc", "https://cb")
-        assert "could not reach Upwork" in problem
-        assert "disabled" not in problem
+        verdict, detail = check_client_registration("abc", "https://cb")
+        assert verdict == CREDENTIALS_UNKNOWN
+        assert "could not reach Upwork" in detail
+
+    def test_a_dead_key_behind_an_http_error_is_still_detected(self, monkeypatch):
+        def raise_http(*_a, **_k):
+            raise HTTPError("url", 403, "Forbidden", {}, io.BytesIO(self.DEAD.encode()))
+
+        monkeypatch.setattr("upwork_cli.client.urlopen", raise_http)
+        assert check_client_registration("abc", "https://cb")[0] == CREDENTIALS_DEAD
 
     def test_no_client_id_short_circuits_without_a_request(self, monkeypatch):
         def fail(*_a, **_k):
             raise AssertionError("should not have made a request")
 
         monkeypatch.setattr("upwork_cli.client.urlopen", fail)
-        assert client_registration_error("", "https://cb") == "no client id configured"
+        verdict, detail = check_client_registration("", "https://cb")
+        assert verdict == CREDENTIALS_DEAD
+        assert detail == "no client id configured"

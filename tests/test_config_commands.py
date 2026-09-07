@@ -202,8 +202,11 @@ class TestLoginChecksTheKeyFirst:
         monkeypatch.setenv("UPWORK_CLIENT_SECRET", "secret")
         save_settings(Settings(client_id="dead-key"))
         monkeypatch.setattr(
-            "upwork_cli.commands.config.client_registration_error",
-            lambda client_id, redirect_uri: "API key has been disabled or deleted.",
+            "upwork_cli.commands.config.check_client_registration",
+            lambda client_id, redirect_uri: (
+                "dead",
+                "API key has been disabled or deleted.",
+            ),
         )
         opened = []
         monkeypatch.setattr(
