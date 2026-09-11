@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" font-family="Helvetica, Arial, sans-serif">
+  <rect width="1440" height="900" fill="#0f172a"/>
+  <text x="720" y="80" text-anchor="middle" font-size="36" font-weight="700" fill="#f8fafc">Data Pipeline / ETL Build</text>
+  <text x="720" y="118" text-anchor="middle" font-size="18" fill="#94a3b8">sources → scheduled extraction → validated warehouse → dashboards and alerts</text>
+  <g fill="#1e293b" stroke="#38bdf8" stroke-width="2">
+    <rect x="70" y="230" width="220" height="70" rx="12"/><rect x="70" y="330" width="220" height="70" rx="12"/><rect x="70" y="430" width="220" height="70" rx="12"/><rect x="70" y="530" width="220" height="70" rx="12"/>
+  </g>
+  <g fill="#f8fafc" font-size="18" font-weight="600" text-anchor="middle">
+    <text x="180" y="273">SaaS APIs</text><text x="180" y="373">Databases</text><text x="180" y="473">Files / CSV / S3</text><text x="180" y="573">Event streams</text>
+  </g>
+  <rect x="400" y="330" width="260" height="170" rx="12" fill="#1e293b" stroke="#a78bfa" stroke-width="2"/>
+  <text x="530" y="372" text-anchor="middle" font-size="20" font-weight="600" fill="#f8fafc">Extract + Load</text>
+  <text x="530" y="402" text-anchor="middle" font-size="15" fill="#94a3b8">Python, scheduled (Prefect / cron)</text>
+  <text x="530" y="426" text-anchor="middle" font-size="15" fill="#94a3b8">retries · incremental loads</text>
+  <text x="530" y="450" text-anchor="middle" font-size="15" fill="#94a3b8">raw tables, nothing dropped</text>
+  <rect x="770" y="330" width="260" height="170" rx="12" fill="#1e293b" stroke="#34d399" stroke-width="2"/>
+  <text x="900" y="372" text-anchor="middle" font-size="20" font-weight="600" fill="#f8fafc">Warehouse</text>
+  <text x="900" y="402" text-anchor="middle" font-size="15" fill="#94a3b8">Postgres / Snowflake / BigQuery</text>
+  <text x="900" y="426" text-anchor="middle" font-size="15" fill="#94a3b8">raw → clean → reporting layers</text>
+  <text x="900" y="450" text-anchor="middle" font-size="15" fill="#94a3b8">documented schema</text>
+  <rect x="1140" y="230" width="230" height="110" rx="12" fill="#1e293b" stroke="#fbbf24" stroke-width="2"/>
+  <text x="1255" y="275" text-anchor="middle" font-size="20" font-weight="600" fill="#f8fafc">Dashboards</text>
+  <text x="1255" y="305" text-anchor="middle" font-size="15" fill="#94a3b8">Metabase · Looker · Grafana</text>
+  <rect x="1140" y="490" width="230" height="110" rx="12" fill="#1e293b" stroke="#f472b6" stroke-width="2"/>
+  <text x="1255" y="535" text-anchor="middle" font-size="20" font-weight="600" fill="#f8fafc">Quality checks</text>
+  <text x="1255" y="565" text-anchor="middle" font-size="15" fill="#94a3b8">freshness · row counts · nulls · schema drift → alerts</text>
+  <defs><marker id="a" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#cbd5e1"/></marker></defs>
+  <g stroke="#cbd5e1" stroke-width="2.5" fill="none" marker-end="url(#a)">
+    <path d="M290,265 L400,380"/><path d="M290,365 L400,400"/><path d="M290,465 L400,430"/><path d="M290,565 L400,460"/>
+    <path d="M660,415 L770,415"/><path d="M1030,390 L1140,300"/><path d="M1030,440 L1140,530"/>
+  </g>
+  <text x="720" y="840" text-anchor="middle" font-size="14" fill="#64748b">Schematic of the delivered architecture · Python · SQL · Docker · CI</text>
+</svg>
