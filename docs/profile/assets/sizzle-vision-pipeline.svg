@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" font-family="Helvetica, Arial, sans-serif">
+  <rect width="1440" height="900" fill="#0f172a"/>
+  <text x="720" y="70" text-anchor="middle" font-size="34" font-weight="700" fill="#f8fafc">Production Vision-AI Pipeline — GCP</text>
+  <text x="720" y="108" text-anchor="middle" font-size="18" fill="#94a3b8">5k+ inference requests/day · &lt;200 ms p95 · 10+ B2B clients · 50k+ labeled images · +12 pp accuracy</text>
+
+  <!-- Clients -->
+  <g>
+    <rect x="80" y="220" width="240" height="90" rx="12" fill="#1e293b" stroke="#38bdf8" stroke-width="2"/>
+    <text x="200" y="258" text-anchor="middle" font-size="20" font-weight="600" fill="#f8fafc">Mobile app</text>
+    <text x="200" y="286" text-anchor="middle" font-size="15" fill="#94a3b8">B2B customers</text>
+    <rect x="80" y="340" width="240" height="90" rx="12" fill="#1e293b" stroke="#38bdf8" stroke-width="2"/>
+    <text x="200" y="378" text-anchor="middle" font-size="20" font-weight="600" fill="#f8fafc">Web client</text>
+    <text x="200" y="406" text-anchor="middle" font-size="15" fill="#94a3b8">engineering + B2B teams</text>
+  </g>
+
+  <!-- API -->
+  <rect x="440" y="260" width="280" height="130" rx="12" fill="#1e293b" stroke="#a78bfa" stroke-width="2"/>
+  <text x="580" y="300" text-anchor="middle" font-size="20" font-weight="600" fill="#f8fafc">REST API (Kotlin)</text>
+  <text x="580" y="330" text-anchor="middle" font-size="15" fill="#94a3b8">auth · request validation</text>
+  <text x="580" y="354" text-anchor="middle" font-size="15" fill="#94a3b8">&lt;200 ms p95 latency</text>
+
+  <!-- Vertex -->
+  <rect x="840" y="260" width="300" height="130" rx="12" fill="#1e293b" stroke="#34d399" stroke-width="2"/>
+  <text x="990" y="300" text-anchor="middle" font-size="20" font-weight="600" fill="#f8fafc">Vertex AI endpoint</text>
+  <text x="990" y="330" text-anchor="middle" font-size="15" fill="#94a3b8">fine-tuned vision model</text>
+  <text x="990" y="354" text-anchor="middle" font-size="15" fill="#94a3b8">5k+ inferences / day</text>
+
+  <!-- BigQuery -->
+  <rect x="840" y="470" width="300" height="110" rx="12" fill="#1e293b" stroke="#fbbf24" stroke-width="2"/>
+  <text x="990" y="510" text-anchor="middle" font-size="20" font-weight="600" fill="#f8fafc">BigQuery</text>
+  <text x="990" y="540" text-anchor="middle" font-size="15" fill="#94a3b8">predictions · metrics · usage</text>
+
+  <!-- Training loop -->
+  <rect x="440" y="640" width="700" height="150" rx="12" fill="#111c34" stroke="#f472b6" stroke-width="2" stroke-dasharray="8 6"/>
+  <text x="790" y="678" text-anchor="middle" font-size="20" font-weight="600" fill="#f8fafc">Training loop (offline)</text>
+  <text x="790" y="710" text-anchor="middle" font-size="15" fill="#94a3b8">labeling workflow → preprocessing → augmentation → fine-tune → evaluate → deploy</text>
+  <text x="790" y="740" text-anchor="middle" font-size="15" fill="#94a3b8">50k+ image dataset · augmentation raised accuracy by 12 percentage points</text>
+
+  <!-- Arrows -->
+  <defs>
+    <marker id="a" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#cbd5e1"/></marker>
+  </defs>
+  <g stroke="#cbd5e1" stroke-width="2.5" fill="none" marker-end="url(#a)">
+    <path d="M320,265 L440,310"/>
+    <path d="M320,385 L440,340"/>
+    <path d="M720,325 L840,325"/>
+    <path d="M990,390 L990,470"/>
+    <path d="M990,580 L990,640"/>
+    <path d="M440,715 C 300,715 300,470 440,470 L 440,390"/>
+  </g>
+  <text x="780" y="315" text-anchor="middle" font-size="13" fill="#cbd5e1">predict</text>
+  <text x="1015" y="435" text-anchor="start" font-size="13" fill="#cbd5e1">log results</text>
+  <text x="1015" y="615" text-anchor="start" font-size="13" fill="#cbd5e1">drift + labeling queue</text>
+  <text x="300" y="590" text-anchor="middle" font-size="13" fill="#cbd5e1">new model version</text>
+
+  <text x="720" y="850" text-anchor="middle" font-size="14" fill="#64748b">Machine Learning Engineer, Sizzle (Los Angeles) · Jun 2024 – May 2025 · numbers from the resume; diagram is schematic</text>
+</svg>
