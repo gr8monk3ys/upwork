@@ -1,7 +1,5 @@
 """Extract winning patterns from past proposals to build a style guide."""
 
-from typing import Optional
-
 from upwork_cli.ai.utils import complete
 
 LEARNER_PROMPT = """\
@@ -24,13 +22,13 @@ generating future proposals (use imperative voice).
 
 
 def extract_winning_patterns(
-    proposals: list[dict], api_key: str, model: Optional[str] = None
+    proposals: list[dict], api_key: str | None = None, model: str | None = None
 ) -> str:
     """Analyze winning proposals and extract a style guide.
 
     Args:
         proposals: List of proposal dicts with 'content', 'job_title', 'tone' keys.
-        api_key: Anthropic API key.
+        api_key: Anthropic API key; resolved from settings when omitted.
         model: Claude model ID; defaults to the configured/default model.
 
     Returns:
@@ -44,11 +42,11 @@ def extract_winning_patterns(
         raise RuntimeError("No winning proposals to analyze.")
 
     parts = []
-    for i, p in enumerate(proposals, 1):
-        title = p.get("job_title", "Untitled")
-        content = p.get("content", "")
-        tone = p.get("tone", "unknown")
-        parts.append(f"--- Proposal {i} (Job: {title}, Tone: {tone}) ---\n{content}")
+    for i, proposal in enumerate(proposals, 1):
+        parts.append(
+            f"--- Proposal {i} (Job: {proposal.title}, Tone: {proposal.tone}) ---"
+            f"\n{proposal.content}"
+        )
 
     proposals_text = "\n\n".join(parts)
 

@@ -1,14 +1,28 @@
 """Main CLI entry point for the Upwork toolkit."""
 
 import click
-from rich.console import Console
 
+from upwork_cli import output
+from upwork_cli.ai.utils import AIError
 from upwork_cli.db import init_db
 
-console = Console()
+
+class _ReportingGroup(click.Group):
+    """Turns an unhandled AIError into a red line and a non-zero exit.
+
+    Commands that can carry on without AI catch it themselves and degrade;
+    anything that reaches here could not, so the user gets the reason
+    rather than a traceback.
+    """
+
+    def invoke(self, ctx: click.Context):
+        try:
+            return super().invoke(ctx)
+        except AIError as exc:
+            output.fail(exc)
 
 
-@click.group()
+@click.group(cls=_ReportingGroup)
 @click.version_option(version="0.1.0", prog_name="upwork")
 def cli():
     """Upwork CLI toolkit for freelancer management.
@@ -25,11 +39,12 @@ def register_commands():
     """Register all command groups."""
     from upwork_cli.commands.applications import applications, offers
     from upwork_cli.commands.config import config
+    from upwork_cli.commands.doctor import doctor
+    from upwork_cli.commands.earnings import contracts, earnings
     from upwork_cli.commands.jobs import jobs
-    from upwork_cli.commands.propose import propose
-    from upwork_cli.commands.earnings import earnings, contracts
     from upwork_cli.commands.messages import messages
     from upwork_cli.commands.pipeline import pipeline
+    from upwork_cli.commands.propose import propose
 
     cli.add_command(config)
     cli.add_command(jobs)
@@ -40,6 +55,7 @@ def register_commands():
     cli.add_command(contracts)
     cli.add_command(messages)
     cli.add_command(pipeline)
+    cli.add_command(doctor)
 
 
 register_commands()

@@ -22,7 +22,7 @@ A Python command-line toolkit for managing your Upwork freelancing workflow from
 
 | Component | Technology |
 |-----------|------------|
-| Language | Python 3.9+ |
+| Language | Python 3.10+ |
 | CLI framework | [Click](https://click.palletsprojects.com/) |
 | Terminal UI | [Rich](https://rich.readthedocs.io/) |
 | Upwork API | [python-upwork-oauth2](https://github.com/upwork/python-upwork) (OAuth2, GraphQL, REST) |
@@ -36,30 +36,42 @@ A Python command-line toolkit for managing your Upwork freelancing workflow from
 
 ### Prerequisites
 
-- Python 3.9 or later
+- Python 3.10 or later
 - An [Upwork API application](https://www.upwork.com/developer/keys/apply) (Client ID + Client Secret)
 - An [Anthropic API key](https://console.anthropic.com/) (optional -- required for AI features)
 
 ### Installation
 
+**To use the tool**, install it as a standalone command:
+
 ```bash
-# Clone the repository
 git clone https://github.com/gr8monk3ys/upwork.git
 cd upwork
+uv tool install .
+```
 
-# Preferred: create the locked dev environment with uv
-uv sync --extra test
+That puts `upwork` on your PATH (usually `~/.local/bin`). Re-run it after
+pulling changes, or use `uv tool install --editable .` to have it track your
+working copy.
 
-# Optional: enter the environment for direct commands
-source .venv/bin/activate
+**To work on the tool**, create the locked dev environment instead:
 
-# Fallback without uv (when pip is available in your venv)
+```bash
+uv sync --extra test          # exact versions from uv.lock
+.venv/bin/pytest              # or `source .venv/bin/activate` first
+```
+
+Without `uv`:
+
+```bash
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install -e ".[test]"
 ```
 
-After installation the `upwork` command is available on your PATH.
+`uv sync` and `pip install -e` put `upwork` in `.venv/bin`, **not** on your
+PATH — you need the venv activated, or the full path `.venv/bin/upwork`.
+Only `uv tool install` gives you a bare `upwork` command.
 
 ### Quick Start
 
@@ -67,16 +79,41 @@ After installation the `upwork` command is available on your PATH.
 # Run the interactive setup wizard (configures API keys + OAuth2)
 upwork config setup
 
+# Already have credentials saved? Just re-authorize:
+upwork config login
+
 # Import your freelancer profile for better AI proposals
 upwork config profile --file profile.md
 
 # Check your configuration status
 upwork config status
 
+# Prove every external path actually works, in one read-only pass
+upwork doctor
+
 # Inspect or clear keychain-backed secrets
 upwork config secrets status
 upwork config secrets clear anthropic-api-key
 ```
+
+### Checking that it works
+
+The test suite runs against in-memory fakes, which prove the code agrees with
+itself. `upwork doctor` proves it agrees with Upwork:
+
+```bash
+upwork doctor            # every read-only path: auth, search, applications,
+                         # offers, earnings, contracts, messages, and one
+                         # small Anthropic completion
+upwork doctor --no-ai    # skip the completion, which spends a few tokens
+```
+
+It is read-only — nothing is submitted, sent or changed — and it reports
+everything that is broken in one run rather than stopping at the first
+failure. Exit code is 1 if any check failed, so it works in a cron job.
+
+An account with no contracts or no applications reports `skipped`, not
+`failed`: an empty account is a working account.
 
 ## Configuration
 
@@ -183,6 +220,9 @@ upwork jobs save <job-id> --note "Interesting project, good budget"
 
 # List all bookmarked jobs
 upwork jobs saved
+
+# Remove a bookmark
+upwork jobs unsave <job-id>
 ```
 
 ### AI Proposal Generation
@@ -225,6 +265,23 @@ win-rate stats only count proposals you really sent.
 
 Available tones: `professional`, `casual`, `technical`, `enthusiastic`
 Available lengths: `short` (~100 words), `medium` (~200 words), `long` (~350 words)
+
+### Recording what you actually sent
+
+Upwork's terms forbid submitting proposals through their API, so every
+proposal is copied out and sent by hand — and most get edited on the way. Record
+the version you really sent, so `propose learn` learns from that rather than
+from the draft:
+
+```bash
+upwork propose record --from-file letter.txt \
+  --title "Fix: RSS feed blocked by Apple Podcasts validator" \
+  --job-id "~022094899542523172877" \
+  --outcome won
+```
+
+`--job-id` is optional; without it the job is keyed off a hash of the title.
+`--outcome` can be set later instead, with `upwork propose mark <id> won`.
 
 ### Applications and Offers
 

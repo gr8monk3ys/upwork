@@ -2,45 +2,29 @@
 
 import json
 import time
-import urllib.request
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import click
-
-from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
-from upwork_cli.client import UpworkClient
-from upwork_cli.config import load_settings, load_profile, save_settings
+from upwork_cli import jobs as jobs_api
+from upwork_cli import output, timestamps, watchlist
+from upwork_cli.ai.utils import require_api_key
+from upwork_cli.client import NotAuthenticated, UpworkClient, get_client
+from upwork_cli.config import load_profile, load_settings
 from upwork_cli.db import (
-    init_db,
-    upsert_job,
-    save_score,
-    save_bookmark,
     get_bookmarks,
-    mark_seen,
-    is_seen,
-    get_jobs_with_scores,
-    set_pipeline_stage_if_not_exists,
+    get_job,
+    get_unscored_jobs,
+    init_db,
+    remove_bookmark,
+    save_bookmark,
 )
 from upwork_cli.models import JobPosting
-from upwork_cli.ai.scorer import score_jobs_batch
-
-console = Console()
-
-
-def _truncate(text: str, length: int) -> str:
-    """Truncate text to a given length, appending ellipsis if needed."""
-    if len(text) <= length:
-        return text
-    return text[: length - 3] + "..."
-
-
-def _format_budget(amount, currency="USD") -> str:
-    """Format a budget amount for display."""
-    if amount is None:
-        return "N/A"
-    return f"${amount:,.0f} {currency}"
+from upwork_cli.output import console
+from upwork_cli.scoring import score_jobs
 
 
 def _format_skills(skills, max_count: int = 3) -> str:
@@ -67,36 +51,6 @@ def _score_color(score: int) -> str:
         return "red"
 
 
-def _parse_job_timestamp(value: str) -> datetime | None:
-    """Parse common job timestamp formats into a timezone-aware datetime."""
-    if not value:
-        return None
-
-    candidates = [value.strip()]
-    if candidates[0].endswith("Z"):
-        candidates.append(candidates[0][:-1] + "+00:00")
-    if " " in candidates[0] and "T" not in candidates[0]:
-        candidates.append(candidates[0].replace(" ", "T", 1))
-
-    for candidate in candidates:
-        try:
-            parsed = datetime.fromisoformat(candidate)
-            if parsed.tzinfo is None:
-                parsed = parsed.replace(tzinfo=timezone.utc)
-            return parsed.astimezone(timezone.utc)
-        except ValueError:
-            continue
-
-    for fmt in ("%a, %d %b %Y %H:%M:%S %Z", "%Y-%m-%d"):
-        try:
-            parsed = datetime.strptime(value, fmt).replace(tzinfo=timezone.utc)
-            return parsed
-        except ValueError:
-            continue
-
-    return None
-
-
 def _matches_job_type(job: JobPosting, job_type: str | None) -> bool:
     """Best-effort job type matching from the engagement label."""
     if not job_type:
@@ -115,7 +69,7 @@ def _matches_posted_window(job: JobPosting, posted: str | None) -> bool:
     if not posted:
         return True
 
-    created_at = _parse_job_timestamp(job.created_at)
+    created_at = timestamps.parse(job.created_at)
     if created_at is None:
         return False
 
@@ -129,23 +83,6 @@ def _matches_posted_window(job: JobPosting, posted: str | None) -> bool:
     }
     cutoff = datetime.now(timezone.utc) - windows[posted]
     return created_at >= cutoff
-
-
-def _search_via_api(client: UpworkClient, query: str, limit: int) -> list[JobPosting]:
-    """Fetch jobs from the Upwork API (authenticated)."""
-    try:
-        result = client.search_jobs_graphql(search_term=query, limit=limit)
-        postings = result.get("data", {}).get("marketplaceJobPostings", {})
-        edges = postings.get("edges", [])
-        jobs = []
-        for edge in edges:
-            node = edge.get("node", {})
-            job = JobPosting.from_graphql(node)
-            jobs.append(job)
-        return jobs
-    except Exception as exc:
-        console.print(f"[red]API search failed: {exc}[/red]")
-        return []
 
 
 def _filter_jobs(
@@ -185,8 +122,8 @@ def _display_jobs_table(jobs: list[JobPosting], title: str = "Search Results") -
 
     for job in jobs:
         table.add_row(
-            _truncate(job.title, 50),
-            _format_budget(job.budget_amount, job.budget_currency),
+            output.truncate(job.title, 50),
+            output.money(job.budget_amount, job.budget_currency),
             _format_skills(job.skills, 3),
             job.client_country or "N/A",
             job.created_at or "N/A",
@@ -195,156 +132,9 @@ def _display_jobs_table(jobs: list[JobPosting], title: str = "Search Results") -
     console.print(table)
 
 
-def _send_discord_notification(webhook_url: str, message: str) -> None:
-    """Send a notification to a Discord webhook."""
-    if not webhook_url.startswith("https://"):
-        console.print("[red]Discord webhook URL must use https://[/red]")
-        return
-    payload = json.dumps({"content": message}).encode("utf-8")
-    req = urllib.request.Request(
-        webhook_url,
-        data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
-        urllib.request.urlopen(req)
-    except Exception as exc:
-        console.print(f"[red]Discord notification failed: {exc}[/red]")
-
-
-def _normalize_search_term(query: str) -> str:
-    """Return a trimmed, whitespace-normalized search term."""
-    return " ".join(query.split())
-
-
-def _get_saved_search_terms(settings) -> list[str]:
-    """Load saved search terms from settings, normalized and deduplicated."""
-    seen: set[str] = set()
-    terms: list[str] = []
-    for item in settings.default_search_terms or []:
-        term = _normalize_search_term(str(item))
-        if term and term not in seen:
-            seen.add(term)
-            terms.append(term)
-    return terms
-
-
-def _save_search_terms(settings, terms: list[str]) -> None:
-    """Persist saved search terms without changing existing secrets."""
-    settings.default_search_terms = terms
-    save_settings(settings)
-
-
-def _collect_new_jobs(results: list[JobPosting], search_term: str) -> list[JobPosting]:
-    """Persist and return only unseen jobs for a given search term."""
-    new_jobs = []
-    for job in results:
-        if is_seen(job.id):
-            continue
-        new_jobs.append(job)
-        mark_seen(job.id, search_term)
-        upsert_job(job.to_db_dict())
-        set_pipeline_stage_if_not_exists(job.id, "found")
-    return new_jobs
-
-
-def _score_alert_jobs(
-    new_jobs: list[JobPosting],
-    min_score: int,
-    has_scoring: bool,
-    profile_summary: str,
-    api_key: str,
-    model: str = "",
-) -> list[dict]:
-    """Score new jobs when possible and return only alert-worthy items."""
-    if not has_scoring:
-        return [{"id": job.id, "title": job.title, "score": "?"} for job in new_jobs]
-
-    batch = [
-        {
-            "id": job.id,
-            "title": job.title,
-            "summary": job.summary_for_ai(),
-        }
-        for job in new_jobs
-    ]
-    scored = score_jobs_batch(batch, profile_summary, api_key, model=model or None)
-    # Failed scores (score=None) stay unsaved so the job is re-scored next cycle
-    # instead of being permanently buried at 0.
-    for item in scored:
-        if item["score"] is not None:
-            save_score(item["id"], item["score"], item.get("reasoning", ""))
-    return [
-        item
-        for item in scored
-        if item["score"] is not None and item["score"] >= min_score
-    ]
-
-
-def _notify_hot_jobs(hot_jobs: list[dict], notify: str, webhook_url: str) -> None:
-    """Emit terminal or Discord alerts for high-priority jobs."""
-    for item in hot_jobs:
-        title = item.get("title", "Untitled")
-        score = item.get("score", "?")
-        alert_msg = f"[Score {score}] {title}"
-
-        if notify == "terminal":
-            console.print(f"  [bold yellow]>> {alert_msg}[/bold yellow]")
-            console.bell()
-        else:
-            _send_discord_notification(
-                webhook_url,
-                f"New Upwork job match!\n**{alert_msg}**",
-            )
-
-
-def _run_search_cycle(
-    client: UpworkClient,
-    settings,
-    query: str,
-    limit: int,
-    min_score: int,
-    notify: str,
-    has_scoring: bool,
-    profile_summary: str,
-    prefix: str = "",
-    show_empty_message: bool = True,
-) -> tuple[int, int]:
-    """Run one search-alert cycle for a query and return (new_jobs, alerts)."""
-    results = _search_via_api(client, query, limit=limit)
-    new_jobs = _collect_new_jobs(results, query)
-
-    label = f"{prefix}{query}" if prefix else query
-    if not new_jobs:
-        if show_empty_message:
-            console.print(f"[dim]{label}: No new jobs.[/dim]")
-        return 0, 0
-
-    console.print(
-        f"[bold green]{label}: {len(new_jobs)} new job(s) found![/bold green]"
-    )
-    hot_jobs = _score_alert_jobs(
-        new_jobs,
-        min_score=min_score,
-        has_scoring=has_scoring,
-        profile_summary=profile_summary,
-        api_key=settings.anthropic_api_key,
-        model=settings.ai_model,
-    )
-    _notify_hot_jobs(hot_jobs, notify, settings.discord_webhook_url)
-
-    if not hot_jobs and has_scoring:
-        console.print(f"  [dim]No jobs scored above {min_score}.[/dim]")
-
-    return len(new_jobs), len(hot_jobs)
-
-
 @click.group()
 def jobs():
     """Job search, scoring, watching, and bookmarking commands."""
-    pass
 
 
 @jobs.command()
@@ -369,27 +159,26 @@ def jobs():
 def search(ctx, query, budget_min, budget_max, job_type, posted, limit):
     """Search for jobs on Upwork."""
     init_db()
-    settings = load_settings()
-    client = UpworkClient(settings=settings)
 
     console.print(f"[bold]Searching for:[/bold] {query}")
 
-    if not client.is_authenticated:
-        console.print("[red]Not authenticated. Run 'upwork config setup' first.[/red]")
-        return
+    try:
+        client = get_client()
+    except NotAuthenticated:
+        output.fail("Not authenticated. Run 'upwork config setup' first.")
 
-    results = _search_via_api(client, query, limit)
+    try:
+        results = jobs_api.search(client, query, limit)
+    except jobs_api.JobsError as exc:
+        output.fail(exc)
 
     results = _filter_jobs(results, budget_min, budget_max, job_type, posted)
 
     if not results:
-        console.print("[yellow]No jobs found matching your query.[/yellow]")
+        output.empty("No jobs found matching your query.")
         return
 
-    # Cache results in the database and add to pipeline
-    for job in results:
-        upsert_job(job.to_db_dict())
-        set_pipeline_stage_if_not_exists(job.id, "found")
+    jobs_api.cache(results)
 
     _display_jobs_table(results, title=f"Jobs: {query}")
     console.print(f"\n[dim]{len(results)} job(s) found and cached.[/dim]")
@@ -404,9 +193,9 @@ def saved_searches():
 def list_saved_searches():
     """List saved search terms."""
     settings = load_settings()
-    search_terms = _get_saved_search_terms(settings)
+    search_terms = watchlist.terms(settings)
     if not search_terms:
-        console.print("[yellow]No saved search terms yet.[/yellow]")
+        output.empty("No saved search terms yet.")
         console.print(
             "[dim]Use 'upwork jobs searches add \"python developer\"' to add one.[/dim]"
         )
@@ -424,17 +213,13 @@ def list_saved_searches():
 @click.argument("query")
 def add_saved_search(query: str):
     """Add a saved search term."""
-    settings = load_settings()
-    search_terms = _get_saved_search_terms(settings)
-    term = _normalize_search_term(query)
-    if not term:
-        console.print("[red]Search term cannot be empty.[/red]")
-        raise SystemExit(1)
-    if term in search_terms:
-        console.print(f"[yellow]Saved search already exists:[/yellow] {term}")
+    try:
+        term = watchlist.add(load_settings(), query)
+    except watchlist.AlreadySaved as exc:
+        output.warn(exc)
         return
-    search_terms.append(term)
-    _save_search_terms(settings, search_terms)
+    except watchlist.WatchlistError as exc:
+        output.fail(exc)
     console.print(f"[green]Added saved search:[/green] {term}")
 
 
@@ -442,59 +227,121 @@ def add_saved_search(query: str):
 @click.argument("query")
 def remove_saved_search(query: str):
     """Remove a saved search term."""
-    settings = load_settings()
-    search_terms = _get_saved_search_terms(settings)
-    term = _normalize_search_term(query)
-    if term not in search_terms:
-        console.print(f"[yellow]Saved search not found:[/yellow] {term}")
+    try:
+        term = watchlist.remove(load_settings(), query)
+    except watchlist.NotSaved as exc:
+        output.warn(exc)
         return
-    updated_terms = [item for item in search_terms if item != term]
-    _save_search_terms(settings, updated_terms)
     console.print(f"[green]Removed saved search:[/green] {term}")
 
 
-def _prepare_saved_search_run(
-    notify: str,
-) -> tuple[object, list[str], bool, str, UpworkClient, int, int]:
-    """Load shared state for saved-search commands."""
+@dataclass
+class _SavedSearchRun:
+    """Everything the saved-search commands need, checked once.
+
+    Was a seven-member tuple unpacked positionally, two of whose members
+    were settings fields already carried by the first, and one of which
+    `searches run` discarded.
+    """
+
+    settings: object
+    terms: list[str]
+    client: UpworkClient
+    scored: bool
+    profile_summary: str
+
+
+def _prepare_run(notify: str, query: str | None = None) -> _SavedSearchRun:
+    """Load and check everything a search-alert run needs.
+
+    *query* runs one ad-hoc term; without it the saved terms are used.
+    """
     init_db()
     settings = load_settings()
     profile = load_profile()
-    search_terms = _get_saved_search_terms(settings)
-    if not search_terms:
-        console.print("[yellow]No saved search terms configured.[/yellow]")
+    search_terms = [watchlist.normalize(query)] if query else watchlist.terms(settings)
+    if not search_terms or not search_terms[0]:
         console.print(
             "[dim]Use 'upwork jobs searches add \"python developer\"' to add one.[/dim]"
         )
-        raise SystemExit(1)
+        output.fail("No saved search terms configured.")
 
     if notify == "discord" and not settings.discord_webhook_url:
-        console.print(
-            "[red]Discord webhook URL not configured. Run 'upwork config setup' to set it.[/red]"
-        )
-        raise SystemExit(1)
-
-    has_scoring = bool(settings.anthropic_api_key and (profile.title or profile.skills))
-    if not has_scoring:
-        console.print(
-            "[yellow]Scoring disabled: missing API key or profile. New jobs will not be scored.[/yellow]"
+        output.fail(
+            "Discord webhook URL not configured. Run 'upwork config setup' to set it."
         )
 
-    profile_summary = profile.summary() if has_scoring else ""
-    client = UpworkClient(settings=settings)
-    if not client.is_authenticated:
-        console.print("[red]Not authenticated. Run 'upwork config setup' first.[/red]")
-        raise SystemExit(1)
+    scored = bool(settings.anthropic_api_key and (profile.title or profile.skills))
+    if not scored:
+        output.warn(
+            "Scoring disabled: missing API key or profile. New jobs will not be scored."
+        )
 
-    return (
-        settings,
-        search_terms,
-        has_scoring,
-        profile_summary,
-        client,
-        settings.watch_interval_minutes,
-        settings.min_score_threshold,
+    try:
+        client = get_client()
+    except NotAuthenticated:
+        output.fail("Not authenticated. Run 'upwork config setup' first.")
+
+    return _SavedSearchRun(
+        settings=settings,
+        terms=search_terms,
+        client=client,
+        scored=scored,
+        profile_summary=profile.summary() if scored else "",
     )
+
+
+def _emit_alerts(report: watchlist.CycleReport, notify: str, webhook_url: str) -> None:
+    """Deliver one cycle's alerts by the chosen means."""
+    for result in report.alerts:
+        text = watchlist.alert_text(result)
+        if notify == "terminal":
+            console.print(f"  [bold yellow]>> {escape(text)}[/bold yellow]")
+            console.bell()
+            continue
+        try:
+            watchlist.send_discord(webhook_url, f"New Upwork job match!\n**{text}**")
+        except watchlist.WatchlistError as exc:
+            # A webhook that will not accept a POST must not end a watch loop.
+            output.warn(exc)
+
+
+def _cycle(
+    run: _SavedSearchRun,
+    term: str,
+    *,
+    limit: int,
+    min_score: int,
+    notify: str,
+    label: str,
+    show_empty: bool = True,
+) -> watchlist.CycleReport:
+    """Run one cycle and render it. A failed search is reported, not hidden."""
+    try:
+        report = watchlist.run_cycle(
+            run.client,
+            term,
+            limit=limit,
+            min_score=min_score,
+            profile_summary=run.profile_summary,
+            scored=run.scored,
+        )
+    except jobs_api.JobsError as exc:
+        output.warn(f"{label}: {exc}")
+        return watchlist.CycleReport(term=term, scored=run.scored)
+
+    if not report.new_jobs:
+        if show_empty:
+            console.print(f"[dim]{label}: No new jobs.[/dim]")
+        return report
+
+    console.print(
+        f"[bold green]{label}: {report.new_count} new job(s) found![/bold green]"
+    )
+    _emit_alerts(report, notify, run.settings.discord_webhook_url)
+    if not report.alerts and report.scored:
+        console.print(f"  [dim]No jobs scored above {min_score}.[/dim]")
+    return report
 
 
 @saved_searches.command("run")
@@ -517,36 +364,22 @@ def _prepare_saved_search_run(
 )
 def run_saved_searches(limit: int, min_score: int | None, notify: str):
     """Run all saved searches once and alert on new matches."""
-    (
-        settings,
-        search_terms,
-        has_scoring,
-        profile_summary,
-        client,
-        _interval_default,
-        min_score_default,
-    ) = _prepare_saved_search_run(notify)
-    min_score = min_score if min_score is not None else min_score_default
+    run = _prepare_run(notify)
+    if min_score is None:
+        min_score = run.settings.min_score_threshold
 
-    console.print(f"[bold]Running {len(search_terms)} saved search(es)...[/bold]")
+    console.print(f"[bold]Running {len(run.terms)} saved search(es)...[/bold]")
     total_new = 0
     total_alerts = 0
-    for query in search_terms:
-        new_count, alert_count = _run_search_cycle(
-            client,
-            settings,
-            query=query,
-            limit=limit,
-            min_score=min_score,
-            notify=notify,
-            has_scoring=has_scoring,
-            profile_summary=profile_summary,
+    for term in run.terms:
+        report = _cycle(
+            run, term, limit=limit, min_score=min_score, notify=notify, label=term
         )
-        total_new += new_count
-        total_alerts += alert_count
+        total_new += report.new_count
+        total_alerts += report.alert_count
 
     if total_new == 0:
-        console.print("[yellow]No new jobs found across saved searches.[/yellow]")
+        output.empty("No new jobs found across saved searches.")
         return
 
     console.print(
@@ -577,21 +410,15 @@ def watch_saved_searches(
     interval: int | None, limit: int, min_score: int | None, notify: str
 ):
     """Continuously watch all saved searches."""
-    (
-        settings,
-        search_terms,
-        has_scoring,
-        profile_summary,
-        client,
-        interval_default,
-        min_score_default,
-    ) = _prepare_saved_search_run(notify)
-    interval = interval if interval is not None else interval_default
-    min_score = min_score if min_score is not None else min_score_default
+    run = _prepare_run(notify)
+    if interval is None:
+        interval = run.settings.watch_interval_minutes
+    if min_score is None:
+        min_score = run.settings.min_score_threshold
 
-    console.print(f"[bold]Watching {len(search_terms)} saved search(es)...[/bold]")
-    for query in search_terms:
-        console.print(f"[dim]- {query}[/dim]")
+    console.print(f"[bold]Watching {len(run.terms)} saved search(es)...[/bold]")
+    for term in run.terms:
+        console.print(f"[dim]- {term}[/dim]")
     console.print(
         f"[dim]Interval: {interval}m | Min score: {min_score} | Notify: {notify}[/dim]"
     )
@@ -602,27 +429,24 @@ def watch_saved_searches(
             cycle_new = 0
             cycle_alerts = 0
             stamp = time.strftime("%H:%M:%S")
-            for query in search_terms:
-                new_count, alert_count = _run_search_cycle(
-                    client,
-                    settings,
-                    query=query,
+            for term in run.terms:
+                report = _cycle(
+                    run,
+                    term,
                     limit=limit,
                     min_score=min_score,
                     notify=notify,
-                    has_scoring=has_scoring,
-                    profile_summary=profile_summary,
-                    prefix=f"{stamp} -- ",
-                    show_empty_message=False,
+                    label=f"{stamp} -- {term}",
+                    show_empty=False,
                 )
-                cycle_new += new_count
-                cycle_alerts += alert_count
+                cycle_new += report.new_count
+                cycle_alerts += report.alert_count
 
             if cycle_new == 0:
                 console.print(
                     f"[dim]{stamp} -- No new jobs across saved searches.[/dim]"
                 )
-            elif has_scoring and cycle_alerts == 0:
+            elif run.scored and cycle_alerts == 0:
                 console.print(
                     f"[dim]{stamp} -- No saved-search jobs scored above {min_score}.[/dim]"
                 )
@@ -637,113 +461,51 @@ def watch_saved_searches(
 def score(ctx):
     """AI-score the most recent search results."""
     init_db()
-    settings = load_settings()
+    require_api_key()
     profile = load_profile()
 
-    if not settings.anthropic_api_key:
-        console.print(
-            "[red]Anthropic API key not configured. Run 'upwork config setup' to set it.[/red]"
-        )
-        return
-
     if not profile.title and not profile.skills:
-        console.print(
-            "[yellow]Profile is empty. Run 'upwork config profile' to set up your profile first.[/yellow]"
-        )
-        return
+        output.fail("Profile is empty. Run 'upwork config profile' to set it up first.")
 
-    cached_jobs = get_jobs_with_scores(limit=50)
-    # Filter to jobs that have not been scored yet
-    unscored = [j for j in cached_jobs if j.get("score") is None]
+    unscored = get_unscored_jobs(limit=50)
 
     if not unscored:
-        console.print(
-            "[yellow]No unscored jobs found. Run 'jobs search' first.[/yellow]"
-        )
+        output.empty("No unscored jobs found. Run 'jobs search' first.")
         return
 
     console.print(
         f"[bold]Scoring {len(unscored)} job(s) against your profile...[/bold]\n"
     )
 
-    profile_summary = profile.summary()
-
-    # Build the batch input for the scorer
-    batch = []
-    for row in unscored:
-        skills = row.get("skills", "[]")
-        if isinstance(skills, str):
-            try:
-                skills = json.loads(skills)
-            except (json.JSONDecodeError, TypeError):
-                skills = []
-
-        job_obj = JobPosting(
-            id=row["id"],
-            title=row.get("title", ""),
-            description=row.get("description", ""),
-            skills=skills,
-            budget_amount=row.get("budget_amount"),
-            budget_currency=row.get("budget_currency", "USD"),
-            duration=row.get("duration", ""),
-            engagement=row.get("engagement", ""),
-            client_country=row.get("client_country", ""),
-            client_total_spent=row.get("client_total_spent"),
-            client_total_hires=row.get("client_total_hires"),
-            client_feedback=row.get("client_feedback"),
-            client_verified=bool(row.get("client_verified")),
-            created_at=row.get("created_at", ""),
-        )
-        batch.append(
-            {
-                "id": job_obj.id,
-                "title": job_obj.title,
-                "summary": job_obj.summary_for_ai(),
-            }
-        )
-
-    scored = score_jobs_batch(
-        batch, profile_summary, settings.anthropic_api_key, model=settings.ai_model
+    results = score_jobs(
+        unscored,
+        profile.summary(),
     )
 
-    # Save scores to the database; failed jobs (score=None) stay unscored so
-    # the next run retries them instead of caching a bogus 0.
-    for item in scored:
-        if item["score"] is not None:
-            save_score(item["id"], item["score"], item.get("reasoning", ""))
-
-    # Display scored results
     table = Table(title="Job Scores", show_lines=True)
     table.add_column("Score", justify="center", width=6)
     table.add_column("Title", style="bold cyan", max_width=50)
     table.add_column("Budget", justify="right")
     table.add_column("Reasoning", max_width=60)
 
-    for item in scored:
-        sc = item["score"]
-        # Look up budget from the original row
-        original = next((r for r in unscored if r["id"] == item["id"]), {})
-        budget = _format_budget(
-            original.get("budget_amount"), original.get("budget_currency", "USD")
-        )
-
-        if sc is None:
+    for result in results:
+        if result.score is None:
             score_cell = "[red]—[/red]"
-            reasoning = f"[red]{item.get('error', 'Scoring failed')}[/red]"
+            reasoning = f"[red]{result.error or 'Scoring failed'}[/red]"
         else:
-            color = _score_color(sc)
-            score_cell = f"[{color}]{sc}[/{color}]"
-            reasoning = item.get("reasoning", "")
+            color = _score_color(result.score)
+            score_cell = f"[{color}]{result.score}[/{color}]"
+            reasoning = result.reasoning
 
         table.add_row(
             score_cell,
-            _truncate(item.get("title", ""), 50),
-            budget,
+            output.truncate(result.job.title, 50),
+            output.money(result.job.budget_amount, result.job.budget_currency),
             reasoning,
         )
 
     console.print(table)
-    console.print(f"\n[dim]{len(scored)} job(s) scored.[/dim]")
+    console.print(f"\n[dim]{len(results)} job(s) scored.[/dim]")
 
 
 @jobs.command()
@@ -761,32 +523,14 @@ def score(ctx):
 @click.pass_context
 def watch(ctx, query, interval, min_score, notify):
     """Monitor for new jobs matching a query."""
-    init_db()
-    settings = load_settings()
-    profile = load_profile()
-    interval = interval if interval is not None else settings.watch_interval_minutes
-    min_score = min_score if min_score is not None else settings.min_score_threshold
+    run = _prepare_run(notify, query=query)
+    if interval is None:
+        interval = run.settings.watch_interval_minutes
+    if min_score is None:
+        min_score = run.settings.min_score_threshold
+    term = run.terms[0]
 
-    if notify == "discord" and not settings.discord_webhook_url:
-        console.print(
-            "[red]Discord webhook URL not configured. Run 'upwork config setup' to set it.[/red]"
-        )
-        return
-
-    has_scoring = bool(settings.anthropic_api_key and (profile.title or profile.skills))
-    if not has_scoring:
-        console.print(
-            "[yellow]Scoring disabled: missing API key or profile. New jobs will not be scored.[/yellow]"
-        )
-
-    profile_summary = profile.summary() if has_scoring else ""
-    client = UpworkClient(settings=settings)
-
-    if not client.is_authenticated:
-        console.print("[red]Not authenticated. Run 'upwork config setup' first.[/red]")
-        return
-
-    console.print(f"[bold]Watching for:[/bold] {query}")
+    console.print(f"[bold]Watching for:[/bold] {term}")
     console.print(
         f"[dim]Interval: {interval}m | Min score: {min_score} | Notify: {notify}[/dim]"
     )
@@ -794,18 +538,14 @@ def watch(ctx, query, interval, min_score, notify):
 
     try:
         while True:
-            _run_search_cycle(
-                client,
-                settings,
-                query=query,
+            _cycle(
+                run,
+                term,
                 limit=20,
                 min_score=min_score,
                 notify=notify,
-                has_scoring=has_scoring,
-                profile_summary=profile_summary,
-                prefix=f"{time.strftime('%H:%M:%S')} -- ",
+                label=f"{time.strftime('%H:%M:%S')} -- {term}",
             )
-
             time.sleep(interval * 60)
 
     except KeyboardInterrupt:
@@ -818,58 +558,28 @@ def watch(ctx, query, interval, min_score, notify):
 def detail(ctx, job_id):
     """Show full details for a specific job."""
     init_db()
-    settings = load_settings()
-    client = UpworkClient(settings=settings)
-
-    # Try the API first if authenticated
-    if client.is_authenticated:
-        try:
-            data = client.get_job_detail(job_id)
-            job = JobPosting.from_rest(data) if data else None
-        except Exception as exc:
-            console.print(
-                f"[yellow]API lookup failed ({exc}), checking local cache.[/yellow]"
-            )
-            job = None
-    else:
+    # Try the API first, but an unauthenticated client is not an error here:
+    # the local cache is a legitimate answer.
+    try:
+        job = jobs_api.get_detail(get_client(), job_id)
+    except NotAuthenticated:
+        job = None
+    except jobs_api.JobsError as exc:
+        output.warn(f"{exc}, checking local cache.")
         job = None
 
     # Fall back to the local DB cache
     if job is None:
-        cached = get_jobs_with_scores(limit=500)
-        match = next((r for r in cached if r["id"] == job_id), None)
-        if match is None:
-            console.print(f"[red]Job '{job_id}' not found in API or local cache.[/red]")
-            return
-        skills = match.get("skills", "[]")
-        if isinstance(skills, str):
-            try:
-                skills = json.loads(skills)
-            except (json.JSONDecodeError, TypeError):
-                skills = []
-        job = JobPosting(
-            id=match["id"],
-            title=match.get("title", ""),
-            description=match.get("description", ""),
-            skills=skills,
-            budget_amount=match.get("budget_amount"),
-            budget_currency=match.get("budget_currency", "USD"),
-            duration=match.get("duration", ""),
-            engagement=match.get("engagement", ""),
-            client_country=match.get("client_country", ""),
-            client_total_spent=match.get("client_total_spent"),
-            client_total_hires=match.get("client_total_hires"),
-            client_feedback=match.get("client_feedback"),
-            client_verified=bool(match.get("client_verified")),
-            created_at=match.get("created_at", ""),
-        )
+        job = get_job(job_id)
+        if job is None:
+            output.fail(f"Job '{job_id}' not found in API or local cache.")
 
     # Display full details
     console.print()
     console.rule(f"[bold]{job.title}[/bold]")
     console.print(f"[bold]ID:[/bold] {job.id}")
     console.print(
-        f"[bold]Budget:[/bold] {_format_budget(job.budget_amount, job.budget_currency)}"
+        f"[bold]Budget:[/bold] {output.money(job.budget_amount, job.budget_currency)}"
     )
     console.print(
         f"[bold]Skills:[/bold] {', '.join(job.skills) if job.skills else 'N/A'}"
@@ -883,7 +593,7 @@ def detail(ctx, job_id):
     console.print("[bold]Client Info:[/bold]")
     console.print(f"  Country: {job.client_country or 'N/A'}")
     console.print(
-        f"  Total Spent: {_format_budget(job.client_total_spent) if job.client_total_spent else 'N/A'}"
+        f"  Total Spent: {output.money(job.client_total_spent) if job.client_total_spent else 'N/A'}"
     )
     console.print(
         f"  Total Hires: {job.client_total_hires if job.client_total_hires is not None else 'N/A'}"
@@ -912,6 +622,17 @@ def save(ctx, job_id, note):
 
 
 @jobs.command()
+@click.argument("job_id")
+def unsave(job_id: str):
+    """Remove a job from your bookmarks."""
+    init_db()
+    if not any(b.job_id == job_id for b in get_bookmarks()):
+        output.fail(f"Job '{job_id}' is not bookmarked.")
+    remove_bookmark(job_id)
+    console.print(f"[green]Job '{job_id}' removed from bookmarks.[/green]")
+
+
+@jobs.command()
 @click.pass_context
 def saved(ctx):
     """List all bookmarked jobs."""
@@ -919,9 +640,7 @@ def saved(ctx):
     bookmarks = get_bookmarks()
 
     if not bookmarks:
-        console.print(
-            "[yellow]No bookmarks yet. Use 'jobs save <job-id>' to bookmark a job.[/yellow]"
-        )
+        output.empty("No bookmarks yet. Use 'jobs save <job-id>' to bookmark a job.")
         return
 
     table = Table(title="Bookmarked Jobs", show_lines=True)
@@ -931,13 +650,13 @@ def saved(ctx):
     table.add_column("Note", max_width=40)
     table.add_column("Bookmarked At")
 
-    for bm in bookmarks:
+    for bookmark in bookmarks:
         table.add_row(
-            bm.get("job_id", ""),
-            _truncate(bm.get("title", "") or "N/A", 50),
-            _format_budget(bm.get("budget_amount"), bm.get("budget_currency", "USD")),
-            bm.get("note", "") or "",
-            bm.get("bookmarked_at", "") or "",
+            bookmark.job_id,
+            output.truncate(bookmark.title or "N/A", 50),
+            output.money(bookmark.budget_amount, bookmark.budget_currency),
+            bookmark.note,
+            bookmark.bookmarked_at,
         )
 
     console.print(table)

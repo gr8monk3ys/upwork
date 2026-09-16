@@ -5,22 +5,22 @@ from datetime import datetime, timezone
 import pytest
 from click.testing import CliRunner
 
+from tests.conftest import _make_job_posting
+from upwork_cli import pipeline
 from upwork_cli.cli import cli
-from upwork_cli.commands.pipeline import _filter_recent_history
 from upwork_cli.db import (
-    init_db,
-    upsert_job,
-    set_pipeline_stage,
-    set_pipeline_stage_if_not_exists,
+    get_connection,
+    get_pipeline_history,
     get_pipeline_jobs,
     get_pipeline_stats,
-    get_pipeline_history,
-    mark_proposal_outcome,
     get_winning_proposals,
+    init_db,
+    mark_proposal_outcome,
     save_proposal,
-    PIPELINE_STAGES,
+    set_pipeline_stage,
+    set_pipeline_stage_if_not_exists,
+    upsert_job,
 )
-from tests.conftest import _make_job_dict
 
 
 @pytest.fixture
@@ -32,7 +32,7 @@ def runner():
 def seeded_db(isolated_config):
     """Init DB and insert a sample job."""
     init_db()
-    job = _make_job_dict()
+    job = _make_job_posting()
     upsert_job(job)
     return job
 
@@ -40,15 +40,15 @@ def seeded_db(isolated_config):
 class TestPipelineDb:
     def test_set_and_get_stage(self, seeded_db):
         job = seeded_db
-        set_pipeline_stage(job["id"], "found")
+        set_pipeline_stage(job.id, "found")
         jobs = get_pipeline_jobs(stage="found")
         assert len(jobs) == 1
-        assert jobs[0]["job_id"] == job["id"]
+        assert jobs[0]["job_id"] == job.id
 
     def test_move_between_stages(self, seeded_db):
         job = seeded_db
-        set_pipeline_stage(job["id"], "found")
-        set_pipeline_stage(job["id"], "applied")
+        set_pipeline_stage(job.id, "found")
+        set_pipeline_stage(job.id, "applied")
 
         # Should only be in "applied" now
         assert len(get_pipeline_jobs(stage="found")) == 0
@@ -56,11 +56,11 @@ class TestPipelineDb:
 
     def test_history_tracked(self, seeded_db):
         job = seeded_db
-        set_pipeline_stage(job["id"], "found")
-        set_pipeline_stage(job["id"], "applied")
-        set_pipeline_stage(job["id"], "interviewing")
+        set_pipeline_stage(job.id, "found")
+        set_pipeline_stage(job.id, "applied")
+        set_pipeline_stage(job.id, "interviewing")
 
-        history = get_pipeline_history(job["id"])
+        history = get_pipeline_history(job.id)
         assert len(history) == 3
         # Verify all transitions recorded (order may vary with same-second timestamps)
         transitions = [(h["from_stage"], h["to_stage"]) for h in history]
@@ -70,8 +70,8 @@ class TestPipelineDb:
 
     def test_set_if_not_exists_no_overwrite(self, seeded_db):
         job = seeded_db
-        set_pipeline_stage(job["id"], "applied")
-        set_pipeline_stage_if_not_exists(job["id"], "found")
+        set_pipeline_stage(job.id, "applied")
+        set_pipeline_stage_if_not_exists(job.id, "found")
 
         # Should still be "applied"
         jobs = get_pipeline_jobs(stage="applied")
@@ -80,9 +80,9 @@ class TestPipelineDb:
     def test_stats_counts(self, isolated_config):
         init_db()
         for i, stage in enumerate(["found", "found", "applied", "won"]):
-            job = _make_job_dict(id=f"~0{i}")
+            job = _make_job_posting(id=f"~0{i}")
             upsert_job(job)
-            set_pipeline_stage(job["id"], stage)
+            set_pipeline_stage(job.id, stage)
 
         stats = get_pipeline_stats()
         assert stats["stage_counts"]["found"] == 2
@@ -93,14 +93,14 @@ class TestPipelineDb:
 
     def test_get_all_pipeline_jobs(self, seeded_db):
         job = seeded_db
-        set_pipeline_stage(job["id"], "found")
+        set_pipeline_stage(job.id, "found")
         all_jobs = get_pipeline_jobs()
         assert len(all_jobs) == 1
 
     def test_pipeline_stages_constant(self):
-        assert "found" in PIPELINE_STAGES
-        assert "won" in PIPELINE_STAGES
-        assert "lost" in PIPELINE_STAGES
+        assert "found" in pipeline.STAGES
+        assert "won" in pipeline.STAGES
+        assert "lost" in pipeline.STAGES
 
 
 class TestProposalOutcome:
@@ -110,7 +110,7 @@ class TestProposalOutcome:
         mark_proposal_outcome(pid, "won")
         winners = get_winning_proposals()
         assert len(winners) == 1
-        assert winners[0]["outcome"] == "won"
+        assert winners[0].outcome == "won"
 
 
 class TestPipelineCli:
@@ -122,29 +122,42 @@ class TestPipelineCli:
 
     def test_move_and_view(self, runner, isolated_config):
         init_db()
-        job = _make_job_dict()
+        job = _make_job_posting()
         upsert_job(job)
-        result = runner.invoke(cli, ["pipeline", "move", job["id"], "found"])
+        result = runner.invoke(cli, ["pipeline", "move", job.id, "found"])
         assert result.exit_code == 0
         assert "moved to" in result.output
 
     def test_stats_empty(self, runner, isolated_config):
+        """An empty Pipeline reports nothing to show, not a 0% win rate."""
         init_db()
         result = runner.invoke(cli, ["pipeline", "stats"])
         assert result.exit_code == 0
+        assert "No jobs in the pipeline yet" in result.output
+        assert "Win Rate" not in result.output
 
 
 class TestPipelineHelpers:
-    def test_recent_history_handles_sqlite_timestamps(self):
-        history = [
-            {"job_id": "~01abc", "moved_at": "2026-03-08 12:00:00"},
-            {"job_id": "~01old", "moved_at": "2026-03-01 12:00:00"},
-        ]
+    def test_recent_history_handles_sqlite_timestamps(self, seeded_db):
+        job = seeded_db
+        set_pipeline_stage(job.id, "found")
+        with get_connection() as conn:
+            conn.execute("UPDATE pipeline_history SET moved_at = '2026-03-08 12:00:00'")
 
-        recent = _filter_recent_history(
-            history,
-            days=1,
-            now=datetime(2026, 3, 8, 12, 30, tzinfo=timezone.utc),
+        recent = pipeline.recent(
+            days=1, now=datetime(2026, 3, 8, 12, 30, tzinfo=timezone.utc)
         )
+        assert [t.job_id for t in recent] == [job.id]
 
-        assert [item["job_id"] for item in recent] == ["~01abc"]
+    def test_a_transition_older_than_the_window_is_left_out(self, seeded_db):
+        job = seeded_db
+        set_pipeline_stage(job.id, "found")
+        with get_connection() as conn:
+            conn.execute("UPDATE pipeline_history SET moved_at = '2026-03-01 12:00:00'")
+
+        assert (
+            pipeline.recent(
+                days=1, now=datetime(2026, 3, 8, 12, 30, tzinfo=timezone.utc)
+            )
+            == []
+        )

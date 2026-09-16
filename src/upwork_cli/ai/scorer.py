@@ -1,13 +1,11 @@
 """Score Upwork job postings against a freelancer profile using Claude."""
 
-import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Optional
 
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from upwork_cli.ai.utils import AIError, complete, strip_json_fences
+from upwork_cli.ai.utils import AIError, complete_json
 
 SCORING_PROMPT = """\
 You are an expert Upwork freelancer advisor. Score how well this job posting \
@@ -43,15 +41,15 @@ console = Console()
 def score_job(
     job_summary: str,
     profile_summary: str,
-    api_key: str,
-    model: Optional[str] = None,
+    api_key: str | None = None,
+    model: str | None = None,
 ) -> tuple[int, str]:
     """Score a single job posting against a freelancer profile.
 
     Args:
         job_summary: Text summary of the job posting.
         profile_summary: Text summary of the freelancer's profile.
-        api_key: Anthropic API key.
+        api_key: Anthropic API key; resolved from settings when omitted.
         model: Claude model ID; defaults to the configured/default model.
 
     Returns:
@@ -60,18 +58,18 @@ def score_job(
     Raises:
         AIError: If the API call fails or the response cannot be parsed.
     """
-    raw = complete(
+    result = complete_json(
         SCORING_PROMPT.format(profile=profile_summary, job=job_summary),
         api_key,
         model=model,
         max_tokens=2048,
+        what="scoring response",
     )
 
     try:
-        result = json.loads(strip_json_fences(raw.strip()))
         score = max(1, min(10, int(result["score"])))
         reasoning = str(result["reasoning"])
-    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+    except (KeyError, TypeError, ValueError) as exc:
         raise AIError(f"Could not parse scoring response: {exc}") from exc
 
     return score, reasoning
@@ -80,8 +78,8 @@ def score_job(
 def score_jobs_batch(
     jobs: list[dict],
     profile_summary: str,
-    api_key: str,
-    model: Optional[str] = None,
+    api_key: str | None = None,
+    model: str | None = None,
     max_workers: int = 4,
 ) -> list[dict]:
     """Score multiple job postings against a freelancer profile.
@@ -96,7 +94,7 @@ def score_jobs_batch(
     Args:
         jobs: List of job dicts, each with at least a 'summary' key.
         profile_summary: Text summary of the freelancer's profile.
-        api_key: Anthropic API key.
+        api_key: Anthropic API key; resolved from settings when omitted.
         model: Claude model ID; defaults to the configured/default model.
         max_workers: Concurrent API calls (set to 1 for sequential scoring).
 

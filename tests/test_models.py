@@ -1,6 +1,8 @@
 """Tests for data models in upwork_cli.models."""
 
-from upwork_cli.models import JobPosting, Contract, Message
+import pytest
+
+from upwork_cli.models import Contract, JobPosting, Message
 
 
 class TestJobPostingFromGraphQL:
@@ -43,25 +45,6 @@ class TestJobPostingFromRest:
         assert job.skills == []
 
 
-class TestJobPostingFromRss:
-    def test_full_data(self, sample_rss_entry):
-        job = JobPosting.from_rss(sample_rss_entry)
-        # from_rss splits link on "~" and takes the last segment
-        assert job.id == "01rss789"
-        assert job.title == "Data Analyst Needed"
-        assert job.budget_amount == 2500.0
-
-    def test_no_budget_in_rss(self):
-        entry = {
-            "title": "No Budget Job",
-            "link": "",
-            "id": "rss-no-budget",
-            "summary": "Just text.",
-        }
-        job = JobPosting.from_rss(entry)
-        assert job.budget_amount is None
-
-
 class TestToDbDict:
     def test_roundtrip_fields(self, sample_graphql_node):
         job = JobPosting.from_graphql(sample_graphql_node)
@@ -83,6 +66,7 @@ class TestToDbDict:
             "budget_amount",
             "budget_currency",
             "duration",
+            "duration_label",
             "engagement",
             "client_country",
             "client_total_spent",
@@ -94,6 +78,55 @@ class TestToDbDict:
             "subcategory",
         }
         assert set(d.keys()) == expected_keys
+
+
+class TestFromDbRow:
+    def test_decodes_json_skills(self):
+        job = JobPosting.from_db_row(
+            {"id": "~01x", "title": "T", "skills": '["Python", "Django"]'}
+        )
+        assert job.skills == ["Python", "Django"]
+
+    def test_tolerates_malformed_skills(self):
+        job = JobPosting.from_db_row({"id": "~01x", "skills": "not json"})
+        assert job.skills == []
+
+    def test_accepts_a_list_unchanged(self):
+        job = JobPosting.from_db_row({"id": "~01x", "skills": ["Go"]})
+        assert job.skills == ["Go"]
+
+    def test_coerces_client_verified_to_bool(self):
+        assert (
+            JobPosting.from_db_row({"id": "~01x", "client_verified": 1}).client_verified
+            is True
+        )
+        assert (
+            JobPosting.from_db_row({"id": "~01x", "client_verified": 0}).client_verified
+            is False
+        )
+
+    def test_defaults_missing_columns(self):
+        """An older database may lack columns that MIGRATIONS adds."""
+        job = JobPosting.from_db_row({"id": "~01x"})
+        assert job.title == ""
+        assert job.budget_currency == "USD"
+        assert job.duration_label == ""
+        assert job.skills == []
+
+    def test_requires_an_id(self):
+        with pytest.raises(KeyError):
+            JobPosting.from_db_row({"title": "no id"})
+
+    def test_round_trips_a_posting(self):
+        original = JobPosting(
+            id="~01x",
+            title="Test",
+            skills=["Python"],
+            duration_label="1 to 3 months",
+            client_verified=True,
+        )
+        row = dict(original.to_db_dict())
+        assert JobPosting.from_db_row(row) == original
 
 
 class TestSummaryForAi:
@@ -140,6 +173,32 @@ class TestMessage:
         }
         m = Message.from_api(data, room_id="room-1")
         assert m.id == "msg-1"
-        assert m.sender == "user-42"
+        assert m.sender_id == "user-42"
+        assert m.sender_name == ""
+        assert m.sender_label == "user-42"
         assert m.content == "Hello!"
         assert m.room_id == "room-1"
+
+    def test_prefers_the_name_for_display(self):
+        """Regression: the display name was overwritten by the raw user id."""
+        m = Message.from_api(
+            {
+                "id": "msg-2",
+                "userId": "~01ab99",
+                "user": {"id": "~01ab99", "name": "Dana Reyes"},
+                "message": "Hi",
+            },
+            room_id="room-1",
+        )
+        assert m.sender_id == "~01ab99"
+        assert m.sender_name == "Dana Reyes"
+        assert m.sender_label == "Dana Reyes"
+
+    def test_falls_back_to_id_then_unknown(self):
+        assert Message.from_api({"id": "m", "userId": "~x"}).sender_label == "~x"
+        assert Message.from_api({"id": "m"}).sender_label == "Unknown"
+
+    def test_id_comes_from_nested_user_when_absent(self):
+        m = Message.from_api({"id": "m", "user": {"id": "~nested", "name": "Sam"}})
+        assert m.sender_id == "~nested"
+        assert m.sender_name == "Sam"

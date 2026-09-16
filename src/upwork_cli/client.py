@@ -1,24 +1,22 @@
 """Upwork API client wrapper supporting both GraphQL and REST endpoints."""
 
-from typing import Any, Optional
+from datetime import datetime
+from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.request import Request, urlopen
 
 import upwork
 from upwork.routers import auth as upwork_auth
 from upwork.routers import graphql as upwork_graphql
 from upwork.routers import messages as upwork_messages
-from upwork.routers.hr import contracts as hr_contracts
 from upwork.routers.hr import engagements as hr_engagements
-from upwork.routers.hr import milestones as hr_milestones
 from upwork.routers.hr import submissions as hr_submissions
 from upwork.routers.jobs import profile as job_profile
-from upwork.routers.jobs import search as job_search
-from upwork.routers.organization import companies, users
+from upwork.routers.organization import companies
 from upwork.routers.reports.finance import earnings as fin_earnings
-from upwork.routers.reports.finance import billings as fin_billings
-from upwork.routers.reports import time as time_reports
 
 from upwork_cli.config import AuthToken, Settings, load_auth, load_settings, save_auth
-
 
 VENDOR_PROPOSALS_QUERY = """
 query vendorProposals(
@@ -246,11 +244,11 @@ class UpworkClient:
     """Wrapper around the official Upwork SDK."""
 
     def __init__(
-        self, settings: Optional[Settings] = None, token: Optional[AuthToken] = None
+        self, settings: Settings | None = None, token: AuthToken | None = None
     ):
         self._settings = settings or load_settings()
         self._token = token or load_auth()
-        self._client: Optional[upwork.Client] = None
+        self._client: upwork.Client | None = None
 
     @property
     def is_authenticated(self) -> bool:
@@ -280,6 +278,14 @@ class UpworkClient:
         return url
 
     def complete_auth(self, callback_url: str) -> AuthToken:
+        """Exchange an authorization callback for a token.
+
+        Raises:
+            ValueError: when the URL is not a callback -- most often because
+                the authorize URL was pasted back instead of the one the
+                browser landed on afterwards.
+        """
+        check_callback_url(callback_url)
         client = self._ensure_client()
         token_data = client.get_access_token(callback_url)
         token = AuthToken(
@@ -298,7 +304,7 @@ class UpworkClient:
 
     # --- GraphQL ---
 
-    def graphql(self, query: str, variables: Optional[dict] = None) -> dict[str, Any]:
+    def _graphql(self, query: str, variables: dict | None = None) -> dict[str, Any]:
         client = self._ensure_client()
         payload: dict[str, Any] = {"query": query}
         if variables:
@@ -306,9 +312,9 @@ class UpworkClient:
         return upwork_graphql.Api(client).execute(payload)
 
     def _graphql_data(
-        self, query: str, variables: Optional[dict] = None
+        self, query: str, variables: dict | None = None
     ) -> dict[str, Any]:
-        result = self.graphql(query, variables)
+        result = self._graphql(query, variables)
         errors = result.get("errors") or []
         if errors:
             messages = []
@@ -322,10 +328,6 @@ class UpworkClient:
 
     # --- Job Search ---
 
-    def search_jobs(self, params: dict[str, Any]) -> dict[str, Any]:
-        client = self._ensure_client()
-        return job_search.Api(client).find(params)
-
     def search_jobs_graphql(
         self,
         search_term: str,
@@ -333,6 +335,8 @@ class UpworkClient:
         sort_order: str = "DESC",
         limit: int = 20,
     ) -> dict[str, Any]:
+        # %-format on purpose: the GraphQL body is full of braces, so
+        # str.format()/f-strings would need every one escaped.
         query = (
             """
         query($searchTerm: String!, $sortField: MarketplaceJobPostingSortField!, $sortOrder: SortOrder!) {
@@ -369,10 +373,10 @@ class UpworkClient:
                 }
             }
         }
-        """
+        """  # noqa: UP031
             % limit
         )
-        return self.graphql(
+        return self._graphql(
             query,
             {
                 "searchTerm": search_term,
@@ -387,27 +391,22 @@ class UpworkClient:
 
     # --- Proposals / Applications ---
 
-    def get_applications(self, params: Optional[dict] = None) -> dict[str, Any]:
-        params = params or {}
-        return self.search_vendor_proposals(
-            status=params.get("status", "Accepted"),
-            limit=int(params.get("limit", 20)),
-            sort_field=params.get("sort_field", "MODIFIEDDATETIME"),
-            sort_order=params.get("sort_order", "DESC"),
-            job_posting_ids=params.get("job_posting_ids"),
-        )
-
-    def get_application(self, reference: str) -> dict[str, Any]:
-        return self.get_vendor_proposal(reference)
-
-    def search_vendor_proposals(
+    def get_applications(
         self,
+        *,
         status: str = "Accepted",
         limit: int = 20,
-        sort_field: str = "MODIFIEDDATETIME",
+        sort_field: str = "ModifiedDateTime",
         sort_order: str = "DESC",
-        job_posting_ids: Optional[list[str]] = None,
+        job_posting_ids: list[str] | None = None,
     ) -> dict[str, Any]:
+        """Search the freelancer's own submitted proposals.
+
+        ``sort_field`` is a GraphQL enum. The default used to be spelled
+        ``MODIFIEDDATETIME`` while every caller passed ``ModifiedDateTime``,
+        so the two spellings of one enum sat either side of this call; the
+        default now matches the value the callers actually send.
+        """
         variables: dict[str, Any] = {
             "filter": {"status_eq": status},
             "sortAttribute": {
@@ -421,39 +420,18 @@ class UpworkClient:
         data = self._graphql_data(VENDOR_PROPOSALS_QUERY, variables)
         return data.get("vendorProposals", {})
 
-    def get_vendor_proposal(self, reference: str) -> dict[str, Any]:
+    def get_application(self, reference: str) -> dict[str, Any]:
         data = self._graphql_data(VENDOR_PROPOSAL_QUERY, {"id": reference})
         return data.get("vendorProposal", {})
 
     # --- Offers ---
 
-    def get_offers(self, params: Optional[dict] = None) -> dict[str, Any]:
-        params = params or {}
-        return self.list_current_user_offers(
-            limit=int(params.get("limit", 20)),
-            state=params.get("state"),
-            search_text=params.get("search_text"),
-        )
-
-    def respond_to_offer(
-        self, reference: str, params: dict[str, Any]
-    ) -> dict[str, Any]:
-        action = (params or {}).get("action", "").lower()
-        if action != "withdraw":
-            raise RuntimeError(
-                "Legacy REST offer actions are deprecated upstream. "
-                "Only GraphQL-based withdraw is implemented."
-            )
-        reason = params.get("reason", "Other")
-        message = params.get("messageToClient") or params.get("message")
-        success = self.withdraw_offer(reference, reason=reason, message=message)
-        return {"success": success}
-
-    def list_current_user_offers(
+    def get_offers(
         self,
+        *,
         limit: int = 20,
-        state: Optional[str] = None,
-        search_text: Optional[str] = None,
+        state: str | None = None,
+        search_text: str | None = None,
     ) -> dict[str, Any]:
         filter_value: dict[str, Any] = {}
         common_filter: dict[str, Any] = {}
@@ -495,7 +473,7 @@ class UpworkClient:
         return listing.get("offers", [])
 
     def withdraw_offer(
-        self, reference: str, reason: str, message: Optional[str] = None
+        self, reference: str, reason: str, message: str | None = None
     ) -> bool:
         payload: dict[str, Any] = {
             "id": reference,
@@ -508,7 +486,7 @@ class UpworkClient:
 
     # --- Contracts / Engagements ---
 
-    def get_engagements(self, params: Optional[dict] = None) -> dict[str, Any]:
+    def get_engagements(self, params: dict | None = None) -> dict[str, Any]:
         client = self._ensure_client()
         return hr_engagements.Api(client).get_list(params or {})
 
@@ -516,27 +494,7 @@ class UpworkClient:
         client = self._ensure_client()
         return hr_engagements.Api(client).get_specific(reference)
 
-    def suspend_contract(
-        self, reference: str, params: dict[str, Any]
-    ) -> dict[str, Any]:
-        client = self._ensure_client()
-        return hr_contracts.Api(client).suspend_contract(reference, params)
-
-    def restart_contract(
-        self, reference: str, params: dict[str, Any]
-    ) -> dict[str, Any]:
-        client = self._ensure_client()
-        return hr_contracts.Api(client).restart_contract(reference, params)
-
-    def end_contract(self, reference: str, params: dict[str, Any]) -> dict[str, Any]:
-        client = self._ensure_client()
-        return hr_contracts.Api(client).end_contract(reference, params)
-
     # --- Milestones ---
-
-    def get_active_milestone(self, contract_id: str) -> dict[str, Any]:
-        client = self._ensure_client()
-        return hr_milestones.Api(client).get_active_milestone(contract_id)
 
     def submit_work(self, params: dict[str, Any]) -> dict[str, Any]:
         client = self._ensure_client()
@@ -544,16 +502,21 @@ class UpworkClient:
 
     # --- Messages ---
 
-    def get_rooms(self, company: str, params: Optional[dict] = None) -> dict[str, Any]:
+    @staticmethod
+    def _paging(limit: int) -> dict[str, str]:
+        """Upwork's offset;count paging string. Its spelling stays in here."""
+        return {"paging": f"0;{limit}"}
+
+    def get_rooms(self, company: str, limit: int = 20) -> dict[str, Any]:
         client = self._ensure_client()
-        return upwork_messages.Api(client).get_rooms(company, params or {})
+        return upwork_messages.Api(client).get_rooms(company, self._paging(limit))
 
     def get_room_messages(
-        self, company: str, room_id: str, params: Optional[dict] = None
+        self, company: str, room_id: str, limit: int = 50
     ) -> dict[str, Any]:
         client = self._ensure_client()
         return upwork_messages.Api(client).get_room_messages(
-            company, room_id, params or {}
+            company, room_id, self._paging(limit)
         )
 
     def send_message(
@@ -565,7 +528,7 @@ class UpworkClient:
         )
 
     def get_room_by_contract(
-        self, company: str, contract_id: str, params: Optional[dict] = None
+        self, company: str, contract_id: str, params: dict | None = None
     ) -> dict[str, Any]:
         client = self._ensure_client()
         return upwork_messages.Api(client).get_room_by_contract(
@@ -575,33 +538,174 @@ class UpworkClient:
     # --- Earnings / Financials ---
 
     def get_earnings(
-        self, freelancer_ref: str, params: Optional[dict] = None
+        self,
+        freelancer_ref: str,
+        from_date: str | None = None,
+        to_date: str | None = None,
     ) -> dict[str, Any]:
-        client = self._ensure_client()
-        return fin_earnings.Api(client).get_by_freelancer(freelancer_ref, params or {})
+        """The earnings report, optionally bounded by date.
 
-    def get_billings(
-        self, freelancer_ref: str, params: Optional[dict] = None
-    ) -> dict[str, Any]:
+        The report's query dialect -- a ``tq`` string of date clauses --
+        is built here rather than by the caller, so nothing outside this
+        class has to know it.
+        """
+        clauses = []
+        if from_date:
+            clauses.append(f"date >= '{_iso_date(from_date)}'")
+        if to_date:
+            clauses.append(f"date <= '{_iso_date(to_date)}'")
+        params = {"tq": " AND ".join(clauses)} if clauses else {}
         client = self._ensure_client()
-        return fin_billings.Api(client).get_by_freelancer(freelancer_ref, params or {})
+        return fin_earnings.Api(client).get_by_freelancer(freelancer_ref, params)
 
     # --- Time Reports ---
 
-    def get_time_report(
-        self, freelancer_id: str, params: Optional[dict] = None
-    ) -> dict[str, Any]:
-        client = self._ensure_client()
-        return time_reports.Api(client).get_by_freelancer_full(
-            freelancer_id, params or {}
-        )
-
     # --- Organization ---
-
-    def get_my_info(self) -> dict[str, Any]:
-        client = self._ensure_client()
-        return users.Api(client).get_my_info()
 
     def get_companies(self) -> dict[str, Any]:
         client = self._ensure_client()
         return companies.Api(client).get_list()
+
+
+def _iso_date(value: str) -> str:
+    """A ``YYYY-MM-DD`` date, or a refusal.
+
+    The earnings report's ``tq`` filter is a query language, and this value
+    is interpolated into it between quotes. Validating here rather than at
+    the CLI means no caller -- present or future -- can put anything but a
+    date into that string.
+    """
+    try:
+        # A calendar date for a report filter, not a moment: no zone applies.
+        return datetime.strptime(value, "%Y-%m-%d").strftime("%Y-%m-%d")  # noqa: DTZ007
+    except (ValueError, TypeError) as exc:
+        raise ValueError(f"Expected a date as YYYY-MM-DD, got {value!r}.") from exc
+
+
+def check_callback_url(url: str) -> None:
+    """Refuse a URL that cannot possibly carry an authorization code.
+
+    The two mistakes worth naming separately: pasting the authorize URL back
+    (it has `response_type=code`, not `code=`), and copying the address bar
+    before the redirect happened. Both used to surface as Upwork's own
+    "(missing_code) Missing code parameter in response", which says what is
+    absent but not what to do.
+    """
+    text = (url or "").strip()
+    if not text:
+        raise ValueError("No URL given.")
+
+    query = parse_qs(urlparse(text).query)
+    if "code" in query:
+        return
+
+    if "response_type" in query or "/oauth2/authorize" in text:
+        raise ValueError(
+            "That is the authorization URL, not the callback URL.\n"
+            "Authorize in the browser first. It will then try to load "
+            "localhost:8080 and fail to connect -- that failure is expected. "
+            "Copy the URL out of the address bar at that point: it looks like "
+            "https://localhost:8080/callback?code=...&state=..."
+        )
+
+    if "error" in query:
+        raise ValueError(
+            f"Upwork refused the authorization: {query['error'][0]}. "
+            "Run the command again and accept the request."
+        )
+
+    raise ValueError(
+        "That URL has no `code=` parameter, so it is not the callback.\n"
+        "The one you want looks like "
+        "https://localhost:8080/callback?code=...&state=..."
+    )
+
+
+AUTHORIZE_ENDPOINT = "https://www.upwork.com/ab/account-security/oauth2/authorize"
+
+#: What the credential probe concluded.
+CREDENTIALS_OK = "ok"
+CREDENTIALS_DEAD = "dead"
+CREDENTIALS_UNKNOWN = "unknown"
+
+#: Upwork sits behind Cloudflare, which serves a challenge page to anything
+#: that is not a browser. That page is an HTTP 403 whose body contains the
+#: word "disabled" -- as the CSS variable `--bg-disabled`. Both are traps: a
+#: status check reads the challenge as a refusal, and a substring check for
+#: "disabled" matches a stylesheet.
+_CHALLENGE_MARKERS = ("challenge - upwork", "cf-chl", "cf_chl", "__cf_bm")
+
+#: The phrase Upwork actually shows for a revoked or deleted app.
+_DEAD_MARKERS = ("client not found or disabled", "invalid_client")
+
+
+def check_client_registration(client_id: str, redirect_uri: str) -> tuple[str, str]:
+    """Ask Upwork whether it still recognises this OAuth app.
+
+    Returns ``(verdict, detail)`` where verdict is one of
+    :data:`CREDENTIALS_OK`, :data:`CREDENTIALS_DEAD` or
+    :data:`CREDENTIALS_UNKNOWN`.
+
+    UNKNOWN is the common answer and is deliberately not a failure. Upwork is
+    behind Cloudflare, so a programmatic request usually gets a challenge page
+    rather than an answer, and "I could not tell" must never be reported as
+    "your key is revoked" -- that sends someone to regenerate working
+    credentials.
+    """
+    if not client_id:
+        return CREDENTIALS_DEAD, "no client id configured"
+
+    query = urlencode(
+        {
+            "response_type": "code",
+            "client_id": client_id,
+            "redirect_uri": redirect_uri or "https://localhost:8080/callback",
+        }
+    )
+    request = Request(
+        f"{AUTHORIZE_ENDPOINT}?{query}",
+        headers={"User-Agent": "upwork-cli/0.1 (credential check)"},
+    )
+    try:
+        with urlopen(request, timeout=15) as response:
+            body = response.read(400_000).decode("utf-8", "replace")
+    except HTTPError as exc:
+        body = exc.read(400_000).decode("utf-8", "replace") if exc.fp else ""
+    except URLError as exc:
+        return CREDENTIALS_UNKNOWN, f"could not reach Upwork ({exc.reason})"
+
+    lowered = body.lower()
+
+    if any(marker in lowered for marker in _CHALLENGE_MARKERS):
+        return CREDENTIALS_UNKNOWN, (
+            "Upwork served a bot challenge, so the key could not be checked "
+            "from here. Only the browser can tell."
+        )
+    if any(marker in lowered for marker in _DEAD_MARKERS):
+        return CREDENTIALS_DEAD, (
+            "Upwork does not recognise this client id — the API key has been "
+            "disabled or deleted. Create a new one at "
+            "https://www.upwork.com/developer/keys and run 'upwork config setup'."
+        )
+    return CREDENTIALS_OK, "recognised by Upwork"
+
+
+class NotAuthenticated(RuntimeError):
+    """Raised when a client is requested before OAuth setup has been completed."""
+
+
+def get_client() -> UpworkClient:
+    """Return an authenticated client, or raise.
+
+    The single construction site for the Upwork API. Commands call this
+    rather than building a client themselves, so tests substitute one
+    implementation here instead of patching the name in every module that
+    imports it.
+    """
+    client = UpworkClient(settings=load_settings())
+    if not client.is_authenticated:
+        raise NotAuthenticated(
+            "Not authenticated. Run 'upwork config setup' to configure your "
+            "API credentials."
+        )
+    return client

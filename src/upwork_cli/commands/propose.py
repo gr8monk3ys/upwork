@@ -2,75 +2,38 @@
 
 import hashlib
 import os
-import json
 import shlex
 import subprocess
 import tempfile
 from pathlib import Path
 
 import click
-from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
 
-from upwork_cli.client import UpworkClient
-from upwork_cli.config import load_settings, load_profile
-from upwork_cli.config import CONFIG_DIR
-from upwork_cli.db import (
-    init_db,
-    get_connection,
-    save_proposal,
-    get_proposals,
-    set_pipeline_stage,
-    mark_proposal_outcome,
-    get_winning_proposals,
-    upsert_job,
+from upwork_cli import jobs as jobs_api
+from upwork_cli import output
+from upwork_cli import proposals as proposals_api
+from upwork_cli.ai.drafter import VALID_TONES, draft_proposal, refine_proposal
+from upwork_cli.ai.utils import require_api_key
+from upwork_cli.client import NotAuthenticated, get_client
+from upwork_cli.config import (
+    STYLE_GUIDE_FILE,
+    load_profile,
+    load_style_guide,
+    save_style_guide,
 )
-from upwork_cli.ai.drafter import draft_proposal, refine_proposal
-
-console = Console()
-
-
-def _normalise_skills(value) -> list[str]:
-    """Return a clean list of skill names from DB or API payloads."""
-    if not value:
-        return []
-    if isinstance(value, list):
-        return [str(item) for item in value if item]
-    if isinstance(value, str):
-        try:
-            parsed = json.loads(value)
-            if isinstance(parsed, list):
-                return [str(item) for item in parsed if item]
-        except json.JSONDecodeError:
-            return [value]
-    return [str(value)]
-
-
-def _get_job_from_db(job_id: str) -> dict | None:
-    """Look up a job from the local database by ID."""
-    with get_connection() as conn:
-        row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
-        return dict(row) if row else None
-
-
-def _get_proposal_by_id(proposal_id: int) -> dict | None:
-    """Load a single proposal by its integer ID."""
-    with get_connection() as conn:
-        row = conn.execute(
-            "SELECT * FROM proposals WHERE id = ?", (proposal_id,)
-        ).fetchone()
-        return dict(row) if row else None
-
-
-def _get_latest_proposal() -> dict | None:
-    """Return the most recently created proposal."""
-    with get_connection() as conn:
-        row = conn.execute(
-            "SELECT * FROM proposals ORDER BY created_at DESC LIMIT 1"
-        ).fetchone()
-        return dict(row) if row else None
+from upwork_cli.db import (
+    get_job,
+    get_latest_proposal,
+    get_proposal,
+    get_proposals,
+    get_winning_proposals,
+    init_db,
+)
+from upwork_cli.models import OUTCOMES, JobPosting, Proposal
+from upwork_cli.output import console
 
 
 def _open_in_editor(text: str) -> str:
@@ -114,7 +77,9 @@ def _copy_to_clipboard(text: str) -> bool:
     return False
 
 
-def _job_from_description(text: str, title: str | None, job_id: str | None) -> dict:
+def _job_from_description(
+    text: str, title: str | None, job_id: str | None
+) -> JobPosting:
     """Build and cache a job row from a pasted/filed job description.
 
     This is the API-free path: the description is the source of truth, so
@@ -134,8 +99,9 @@ def _job_from_description(text: str, title: str | None, job_id: str | None) -> d
         digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:8]
         job_id = f"manual-{digest}"
 
-    upsert_job({"id": job_id, "title": title, "description": text})
-    return {"id": job_id, "title": title, "description": text}
+    posting = JobPosting(id=job_id, title=title, description=text)
+    jobs_api.cache([posting])
+    return posting
 
 
 # ---------------------------------------------------------------------------
@@ -213,19 +179,12 @@ def generate(
     if job_id is None and from_file is None:
         raise click.UsageError("Provide a JOB_ID or --from-file <path>.")
 
-    settings = load_settings()
+    require_api_key()
     profile = load_profile()
 
-    if not settings.anthropic_api_key:
-        console.print(
-            "[red]Anthropic API key not configured.[/red] "
-            "Run [bold]upwork config setup[/bold] first."
-        )
-        raise SystemExit(1)
-
     if not profile.title:
-        console.print(
-            "[yellow]Warning:[/yellow] Profile is empty. "
+        output.warn(
+            "Warning: Profile is empty. "
             "Run [bold]upwork profile[/bold] to set up your profile for better proposals."
         )
 
@@ -234,65 +193,43 @@ def generate(
         job = _job_from_description(
             from_file.read_text(encoding="utf-8"), title, job_id
         )
-        job_id = job["id"]
+        job_id = job.id
     else:
-        job = _get_job_from_db(job_id)
+        job = get_job(job_id)
     if job is None:
         console.print(
             f"[dim]Job {job_id} not in local cache. Fetching from API...[/dim]"
         )
         try:
-            client = UpworkClient(settings=settings)
-            job_data = client.get_job_detail(job_id)
-            # Persist to DB for future use
-            from upwork_cli.models import JobPosting
-
-            posting = JobPosting.from_rest(job_data)
-            upsert_job(posting.to_db_dict())
-            job = _get_job_from_db(job_id)
-        except Exception as exc:
-            console.print(f"[red]Failed to fetch job {job_id}:[/red] {exc}")
+            job = jobs_api.get_detail(get_client(), job_id)
+            if job is not None:
+                jobs_api.cache([job])
+        except (NotAuthenticated, jobs_api.JobsError) as exc:
             console.print(
                 "[dim]Tip: save the job posting text to a file and run "
                 "[bold]propose generate --from-file <path>[/bold] — "
                 "no API access needed.[/dim]"
             )
-            raise SystemExit(1)
+            output.fail(f"Failed to fetch job {job_id}: {exc}")
 
     if job is None:
-        console.print(f"[red]Job {job_id} could not be loaded.[/red]")
-        raise SystemExit(1)
+        output.fail(f"Job {job_id} could not be loaded.")
 
-    job_title = job.get("title", "Untitled")
+    job_title = job.title or "Untitled"
 
     # 2. Build summaries for the AI ----------------------------------------
-    job_parts = [f"Title: {job.get('title', '')}"]
-    if job.get("description"):
-        job_parts.append(f"Description: {job['description'][:1000]}")
-    skills = _normalise_skills(job.get("skills"))
-    if skills:
-        job_parts.append(f"Skills: {', '.join(skills)}")
-    if job.get("budget_amount"):
-        job_parts.append(f"Budget: ${job['budget_amount']:,.0f}")
-    if job.get("duration"):
-        job_parts.append(f"Duration: {job['duration']}")
-    if job.get("engagement"):
-        job_parts.append(f"Engagement: {job['engagement']}")
-    if job.get("client_verified"):
-        job_parts.append("Client: Payment Verified")
-    job_summary = "\n".join(job_parts)
+    job_summary = job.summary_for_ai()
 
     profile_summary = profile.summary() if profile.title else ""
 
     # 2a. Client research (optional) ---------------------------------------
     has_client_data = any(
-        job.get(key)
-        for key in (
-            "client_total_spent",
-            "client_total_hires",
-            "client_feedback",
-            "client_country",
-            "client_verified",
+        (
+            job.client_total_spent,
+            job.client_total_hires,
+            job.client_feedback,
+            job.client_country,
+            job.client_verified,
         )
     )
     if research and not has_client_data:
@@ -308,17 +245,15 @@ def generate(
             try:
                 client_research = research_client(
                     job_summary=job_summary,
-                    total_spent=job.get("client_total_spent"),
-                    total_hires=job.get("client_total_hires"),
-                    feedback=job.get("client_feedback"),
-                    country=job.get("client_country", ""),
-                    verified=bool(job.get("client_verified")),
-                    api_key=settings.anthropic_api_key,
-                    model=settings.ai_model,
+                    total_spent=job.client_total_spent,
+                    total_hires=job.client_total_hires,
+                    feedback=job.client_feedback,
+                    country=job.client_country,
+                    verified=job.client_verified,
                 )
             except RuntimeError as exc:
                 console.print(
-                    f"[yellow]Client research failed ({exc}) — drafting without it.[/yellow]"
+                    f"[yellow]Client research failed ({exc}) — drafting without it."
                 )
 
         if client_research.get("brief"):
@@ -336,10 +271,7 @@ def generate(
                 job_summary += f"\n\nClient Research Tips: {tips}"
 
     # 2b. Load cached style guide ------------------------------------------
-    style_guide = ""
-    style_guide_path = CONFIG_DIR / "style_guide.txt"
-    if style_guide_path.exists():
-        style_guide = style_guide_path.read_text(encoding="utf-8").strip()
+    style_guide = load_style_guide()
 
     # 2c. Draft proposal ---------------------------------------------------
     with console.status("[bold green]Generating proposal..."):
@@ -347,30 +279,23 @@ def generate(
             content = draft_proposal(
                 job_summary=job_summary,
                 profile_summary=profile_summary,
-                api_key=settings.anthropic_api_key,
                 tone=tone,
                 length=length,
                 style_guide=style_guide,
-                model=settings.ai_model,
             )
         except RuntimeError as exc:
-            console.print(f"[red]Proposal generation failed:[/red] {exc}")
-            raise SystemExit(1)
+            output.fail(f"Proposal generation failed: {exc}")
 
     # 3. Optional editor pass ----------------------------------------------
     if open_editor:
         content = _open_in_editor(content)
 
     # 4. Save to DB and update pipeline ------------------------------------
-    proposal_id = save_proposal(
-        job_id=job_id,
-        job_title=job_title,
-        content=content,
-        tone=tone,
-    )
-    # A draft is not an application — win-rate stats only count jobs you
-    # actually submitted. Move to "applied" once the proposal is really sent.
-    set_pipeline_stage(job_id, "drafted")
+    try:
+        stored = proposals_api.record(job_id, job_title, content, tone)
+    except proposals_api.ProposalsError as exc:
+        output.fail(exc)
+    proposal_id = stored.id
 
     # 5. Display -----------------------------------------------------------
     console.print()
@@ -409,32 +334,24 @@ def generate(
 def refine(proposal_id: int | None, feedback: str | None):
     """Refine PROPOSAL_ID (default: the most recent proposal) based on feedback."""
 
-    settings = load_settings()
-
-    if not settings.anthropic_api_key:
-        console.print(
-            "[red]Anthropic API key not configured.[/red] "
-            "Run [bold]upwork config setup[/bold] first."
-        )
-        raise SystemExit(1)
+    require_api_key()
 
     if proposal_id is not None:
-        proposal = _get_proposal_by_id(proposal_id)
+        proposal = get_proposal(proposal_id)
         if proposal is None:
-            console.print(f"[red]Proposal #{proposal_id} not found.[/red]")
-            raise SystemExit(1)
+            output.fail(f"Proposal #{proposal_id} not found.")
     else:
-        proposal = _get_latest_proposal()
+        proposal = get_latest_proposal()
         if proposal is None:
-            console.print(
-                "[red]No proposals found.[/red] Generate one first with [bold]propose generate[/bold]."
+            output.fail(
+                "No proposals found. Generate one first with "
+                "[bold]propose generate[/bold]."
             )
-            raise SystemExit(1)
 
-    original_content = proposal["content"]
-    job_id = proposal["job_id"]
-    job_title = proposal.get("job_title", "Untitled")
-    tone = proposal.get("tone", "professional")
+    original_content = proposal.content
+    job_id = proposal.job_id
+    job_title = proposal.title
+    tone = proposal.tone
 
     if feedback is None:
         feedback = click.prompt("What would you like to change?")
@@ -445,27 +362,22 @@ def refine(proposal_id: int | None, feedback: str | None):
             refined_content = refine_proposal(
                 current_draft=original_content,
                 feedback=feedback,
-                api_key=settings.anthropic_api_key,
-                model=settings.ai_model,
             )
         except RuntimeError as exc:
-            console.print(f"[red]Refinement failed:[/red] {exc}")
-            raise SystemExit(1)
+            output.fail(f"Refinement failed: {exc}")
 
     # Save refined version as a new proposal
-    new_id = save_proposal(
-        job_id=job_id,
-        job_title=job_title,
-        content=refined_content,
-        tone=tone,
-    )
+    try:
+        new_id = proposals_api.record(job_id, job_title, refined_content, tone).id
+    except proposals_api.ProposalsError as exc:
+        output.fail(exc)
 
     # Show before / after
     console.print()
     console.print(
         Panel(
             Markdown(original_content),
-            title=f"BEFORE — Proposal #{proposal['id']}",
+            title=f"BEFORE — Proposal #{proposal.id}",
             border_style="red",
         )
     )
@@ -485,6 +397,22 @@ def refine(proposal_id: int | None, feedback: str | None):
 # ---------------------------------------------------------------------------
 
 
+OUTCOME_COLOURS = {"won": "green", "lost": "red", "no_response": "yellow"}
+
+
+def _outcome_display(proposal: Proposal) -> str:
+    """How a Proposal's Outcome reads in a table.
+
+    An unrecorded Outcome shows as a dash, not as a loss: nobody has said
+    yet what became of it.
+    """
+    if proposal.outcome is None:
+        return "[dim]—[/dim]"
+    colour = OUTCOME_COLOURS.get(proposal.outcome, "white")
+    label = "won" if proposal.is_won else proposal.outcome
+    return f"[{colour}]{label}[/{colour}]"
+
+
 @propose.command()
 @click.option(
     "--limit",
@@ -499,7 +427,7 @@ def history(limit: int):
     proposals = get_proposals(limit=limit)
 
     if not proposals:
-        console.print("[dim]No proposals yet.[/dim]")
+        output.empty("No proposals yet.")
         return
 
     table = Table(title="Proposal History", show_lines=True)
@@ -507,18 +435,17 @@ def history(limit: int):
     table.add_column("Job Title", style="white", max_width=40)
     table.add_column("Tone", style="magenta")
     table.add_column("Date", style="green")
-    table.add_column("Preview", style="dim", max_width=80)
+    table.add_column("Outcome", justify="center")
+    table.add_column("Preview", style="dim", max_width=60)
 
-    for p in proposals:
-        preview = (p.get("content") or "")[:80].replace("\n", " ")
-        if len(p.get("content", "")) > 80:
-            preview += "..."
+    for proposal in proposals:
         table.add_row(
-            str(p["id"]),
-            p.get("job_title", "—"),
-            p.get("tone", "—"),
-            p.get("created_at", "—"),
-            preview,
+            str(proposal.id),
+            proposal.title,
+            proposal.tone,
+            proposal.created_at or "—",
+            _outcome_display(proposal),
+            output.truncate(proposal.content.replace("\n", " "), 60),
         )
 
     console.print(table)
@@ -541,16 +468,15 @@ def history(limit: int):
 def show(proposal_id: int, copy_to_clip: bool):
     """Show the full text of PROPOSAL_ID."""
 
-    proposal = _get_proposal_by_id(proposal_id)
+    proposal = get_proposal(proposal_id)
 
     if proposal is None:
-        console.print(f"[red]Proposal #{proposal_id} not found.[/red]")
-        raise SystemExit(1)
+        output.fail(f"Proposal #{proposal_id} not found.")
 
-    content = proposal["content"]
-    job_title = proposal.get("job_title", "Untitled")
-    tone = proposal.get("tone", "")
-    created = proposal.get("created_at", "")
+    content = proposal.content
+    job_title = proposal.title
+    tone = proposal.tone
+    created = proposal.created_at
 
     console.print()
     console.print(
@@ -566,9 +492,9 @@ def show(proposal_id: int, copy_to_clip: bool):
         if _copy_to_clipboard(content):
             console.print("\n[green]Copied to clipboard.[/green]")
         else:
-            console.print(
-                "\n[red]Failed to copy to clipboard.[/red] "
-                "[dim](no clipboard tool found — install pbcopy, wl-copy, xclip, or xsel)[/dim]"
+            output.warn(
+                "Failed to copy to clipboard "
+                "(no clipboard tool found — install pbcopy, wl-copy, xclip, or xsel)."
             )
 
 
@@ -581,26 +507,14 @@ def show(proposal_id: int, copy_to_clip: bool):
 @click.argument("job_id")
 def prep(job_id: str):
     """Generate interview preparation notes for JOB_ID."""
-    settings = load_settings()
+    require_api_key()
     profile = load_profile()
 
-    if not settings.anthropic_api_key:
-        console.print("[red]Anthropic API key not configured.[/red]")
-        raise SystemExit(1)
-
-    job = _get_job_from_db(job_id)
+    job = get_job(job_id)
     if job is None:
-        console.print(f"[red]Job {job_id} not found in local cache.[/red]")
-        raise SystemExit(1)
+        output.fail(f"Job {job_id} not found in local cache.")
 
-    # Build job summary
-    job_parts = [f"Title: {job.get('title', '')}"]
-    if job.get("description"):
-        job_parts.append(f"Description: {job['description'][:1000]}")
-    skills = _normalise_skills(job.get("skills"))
-    if skills:
-        job_parts.append(f"Skills: {', '.join(skills)}")
-    job_summary = "\n".join(job_parts)
+    job_summary = job.summary_for_ai()
     profile_summary = profile.summary() if profile.title else ""
 
     from upwork_cli.ai.interview_prep import generate_interview_prep
@@ -610,21 +524,100 @@ def prep(job_id: str):
             prep_text = generate_interview_prep(
                 job_summary=job_summary,
                 profile_summary=profile_summary,
-                api_key=settings.anthropic_api_key,
-                model=settings.ai_model,
             )
         except RuntimeError as exc:
-            console.print(f"[red]{exc}[/red]")
-            raise SystemExit(1)
+            output.fail(exc)
 
     console.print()
     console.print(
         Panel(
             Markdown(prep_text),
-            title=f"Interview Prep — {job.get('title', 'Untitled')}",
+            title=f"Interview Prep — {job.title or 'Untitled'}",
             border_style="green",
         )
     )
+
+
+# ---------------------------------------------------------------------------
+# propose record
+# ---------------------------------------------------------------------------
+
+
+@propose.command()
+@click.option(
+    "--from-file",
+    "from_file",
+    type=click.File("r"),
+    required=True,
+    help="File holding the cover letter as you actually sent it.",
+)
+@click.option("--title", type=str, default=None, help="The job's title.")
+@click.option(
+    "--job-id",
+    type=str,
+    default=None,
+    help="Upwork's job id. Derived from the title when omitted.",
+)
+@click.option(
+    "--tone",
+    type=click.Choice(VALID_TONES),
+    default="professional",
+    show_default=True,
+)
+@click.option(
+    "--outcome",
+    type=click.Choice(OUTCOMES),
+    default=None,
+    help="Record what became of it at the same time.",
+)
+def record(
+    from_file, title: str | None, job_id: str | None, tone: str, outcome: str | None
+) -> None:
+    """Store a Proposal you wrote by hand.
+
+    Upwork's terms forbid submitting through the API, so every Proposal is
+    copied out and sent by hand -- and many are edited on the way. Without
+    this, only AI drafts could be stored, so hand-written and hand-edited
+    Proposals were invisible to `propose history` and to `propose learn`,
+    which is exactly the wrong set to hide from the thing that learns what
+    wins.
+    """
+    init_db()
+
+    content = from_file.read().strip()
+    if not content:
+        output.fail("That file is empty; there is no proposal to record.")
+
+    if job_id:
+        job = get_job(job_id)
+        if job is None and not title:
+            output.fail(
+                f"Job {job_id} is not cached, so --title is needed to record it."
+            )
+        if job is None:
+            jobs_api.cache([JobPosting(id=job_id, title=title)])
+        job_title = title or job.title
+    else:
+        if not title:
+            output.fail("Give --title, or --job-id for a job already cached.")
+        digest = hashlib.sha256(title.encode("utf-8")).hexdigest()[:8]
+        job_id = f"manual-{digest}"
+        jobs_api.cache([JobPosting(id=job_id, title=title)])
+        job_title = title
+
+    try:
+        stored = proposals_api.record(job_id, job_title, content, tone)
+        if outcome:
+            stored = proposals_api.mark(stored.id, outcome)
+    except proposals_api.ProposalsError as exc:
+        output.fail(exc)
+
+    console.print(
+        f"[green]Recorded proposal [bold]#{stored.id}[/bold][/green] for {job_title}"
+    )
+    if outcome:
+        colour = OUTCOME_COLOURS.get(outcome, "white")
+        console.print(f"Outcome: [{colour}]{outcome}[/{colour}]")
 
 
 # ---------------------------------------------------------------------------
@@ -637,21 +630,12 @@ def prep(job_id: str):
 @click.argument("outcome", type=click.Choice(["won", "lost", "no_response"]))
 def mark(proposal_id: int, outcome: str):
     """Mark a proposal's outcome (won/lost/no_response)."""
-    proposal = _get_proposal_by_id(proposal_id)
-    if proposal is None:
-        console.print(f"[red]Proposal #{proposal_id} not found.[/red]")
-        raise SystemExit(1)
+    try:
+        proposals_api.mark(proposal_id, outcome)
+    except proposals_api.ProposalsError as exc:
+        output.fail(exc)
 
-    mark_proposal_outcome(proposal_id, outcome)
-
-    # If won, also move pipeline stage
-    if outcome == "won" and proposal.get("job_id"):
-        set_pipeline_stage(proposal["job_id"], "won")
-    elif outcome == "lost" and proposal.get("job_id"):
-        set_pipeline_stage(proposal["job_id"], "lost")
-
-    colors = {"won": "green", "lost": "red", "no_response": "yellow"}
-    color = colors.get(outcome, "white")
+    color = OUTCOME_COLOURS.get(outcome, "white")
     console.print(f"Proposal #{proposal_id} marked as [{color}]{outcome}[/{color}].")
 
 
@@ -663,11 +647,7 @@ def mark(proposal_id: int, outcome: str):
 @propose.command()
 def learn():
     """Extract winning patterns from past proposals into a style guide."""
-    settings = load_settings()
-
-    if not settings.anthropic_api_key:
-        console.print("[red]Anthropic API key not configured.[/red]")
-        raise SystemExit(1)
+    require_api_key()
 
     winners = get_winning_proposals()
     if not winners:
@@ -681,16 +661,11 @@ def learn():
 
     with console.status("[bold green]Analyzing winning proposals..."):
         try:
-            style_guide = extract_winning_patterns(
-                winners, settings.anthropic_api_key, model=settings.ai_model
-            )
+            style_guide = extract_winning_patterns(winners)
         except RuntimeError as exc:
-            console.print(f"[red]{exc}[/red]")
-            raise SystemExit(1)
+            output.fail(exc)
 
-    # Cache to disk
-    style_guide_path = CONFIG_DIR / "style_guide.txt"
-    style_guide_path.write_text(style_guide, encoding="utf-8")
+    save_style_guide(style_guide)
 
     console.print()
     console.print(
@@ -700,5 +675,5 @@ def learn():
             border_style="green",
         )
     )
-    console.print(f"\n[dim]Style guide saved to {style_guide_path}[/dim]")
+    console.print(f"\n[dim]Style guide saved to {STYLE_GUIDE_FILE}[/dim]")
     console.print("[dim]Future proposals will automatically use this guide.[/dim]")

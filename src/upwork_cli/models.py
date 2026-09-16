@@ -1,7 +1,19 @@
 """Data models for Upwork API responses."""
 
+import json
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
+
+
+def _to_float(value: Any, default: float | None = 0.0) -> float | None:
+    """Coerce an API value to a float, falling back rather than raising."""
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return default
 
 
 @dataclass
@@ -10,16 +22,16 @@ class JobPosting:
     title: str
     description: str = ""
     skills: list[str] = field(default_factory=list)
-    budget_amount: Optional[float] = None
+    budget_amount: float | None = None
     budget_currency: str = "USD"
     duration: str = ""
     duration_label: str = ""
     engagement: str = ""
     created_at: str = ""
     client_country: str = ""
-    client_total_spent: Optional[float] = None
-    client_total_hires: Optional[int] = None
-    client_feedback: Optional[float] = None
+    client_total_spent: float | None = None
+    client_total_hires: int | None = None
+    client_feedback: float | None = None
     client_verified: bool = False
     category: str = ""
     subcategory: str = ""
@@ -83,27 +95,45 @@ class JobPosting:
         )
 
     @classmethod
-    def from_rss(cls, entry: dict[str, Any]) -> "JobPosting":
-        description = entry.get("summary", "")
-        budget_str = ""
+    def from_db_row(cls, row: Mapping[str, Any]) -> "JobPosting":
+        """Rebuild a posting from a ``jobs`` row.
 
-        if "<b>Budget</b>:" in description:
-            parts = description.split("<b>Budget</b>:")
-            if len(parts) > 1:
-                budget_str = (
-                    parts[1].split("<br")[0].strip().replace("$", "").replace(",", "")
-                )
+        The counterpart to :meth:`to_db_dict`. Lenient by design: only ``id``
+        is required, every other column falls back to its default, because
+        ``MIGRATIONS`` adds columns to databases that already exist and
+        ``_run_migrations`` does not fail loudly when one does not apply.
+
+        ``skills`` is stored as JSON text and comes back as a list.
+
+        Accepts a plain mapping or a ``sqlite3.Row``, which supports indexing
+        but not ``.get()``.
+        """
+        row = dict(row)
+        skills = row.get("skills") or []
+        if isinstance(skills, str):
+            try:
+                skills = json.loads(skills)
+            except (json.JSONDecodeError, TypeError):
+                skills = []
 
         return cls(
-            id=entry.get("link", "").split("~")[-1]
-            if "~" in entry.get("link", "")
-            else entry.get("id", ""),
-            title=entry.get("title", ""),
-            description=description,
-            budget_amount=float(budget_str)
-            if budget_str and budget_str.replace(".", "").isdigit()
-            else None,
-            created_at=entry.get("published", ""),
+            id=row["id"],
+            title=row.get("title") or "",
+            description=row.get("description") or "",
+            skills=list(skills),
+            budget_amount=row.get("budget_amount"),
+            budget_currency=row.get("budget_currency") or "USD",
+            duration=row.get("duration") or "",
+            duration_label=row.get("duration_label") or "",
+            engagement=row.get("engagement") or "",
+            created_at=row.get("created_at") or "",
+            client_country=row.get("client_country") or "",
+            client_total_spent=row.get("client_total_spent"),
+            client_total_hires=row.get("client_total_hires"),
+            client_feedback=row.get("client_feedback"),
+            client_verified=bool(row.get("client_verified")),
+            category=row.get("category") or "",
+            subcategory=row.get("subcategory") or "",
         )
 
     def to_db_dict(self) -> dict[str, Any]:
@@ -115,6 +145,7 @@ class JobPosting:
             "budget_amount": self.budget_amount,
             "budget_currency": self.budget_currency,
             "duration": self.duration,
+            "duration_label": self.duration_label,
             "engagement": self.engagement,
             "client_country": self.client_country,
             "client_total_spent": self.client_total_spent,
@@ -134,8 +165,9 @@ class JobPosting:
             parts.append(f"Skills: {', '.join(self.skills)}")
         if self.budget_amount:
             parts.append(f"Budget: ${self.budget_amount:,.0f} {self.budget_currency}")
-        if self.duration_label:
-            parts.append(f"Duration: {self.duration_label}")
+        duration = self.duration_label or self.duration
+        if duration:
+            parts.append(f"Duration: {duration}")
         if self.engagement:
             parts.append(f"Engagement: {self.engagement}")
         if self.client_country:
@@ -152,15 +184,260 @@ class JobPosting:
 
 
 @dataclass
+class Bookmark:
+    """A Job the freelancer set aside, with their note on why.
+
+    Carries the Job's title and budget because the listing shows them and
+    the bookmark row is read by a join that already has them.
+    """
+
+    job_id: str
+    note: str = ""
+    bookmarked_at: str = ""
+    title: str = ""
+    budget_amount: float | None = None
+    budget_currency: str = "USD"
+
+    @classmethod
+    def from_db_row(cls, row: Any) -> "Bookmark":
+        row = dict(row)
+        return cls(
+            job_id=row["job_id"],
+            note=row.get("note") or "",
+            bookmarked_at=row.get("bookmarked_at") or "",
+            title=row.get("title") or "",
+            budget_amount=_to_float(row.get("budget_amount")),
+            budget_currency=row.get("budget_currency") or "USD",
+        )
+
+
+#: What became of a Proposal. ``None`` until the freelancer records one --
+#: an unrecorded Proposal is not a lost one.
+OUTCOMES = ("won", "lost", "no_response")
+
+
+@dataclass
+class Proposal:
+    """A cover letter drafted locally for a Job.
+
+    Owned by this tool, never by Upwork: their terms forbid submitting one
+    through the API, so a Proposal is always copied out and sent by hand.
+    Distinct from an Application, which is a Proposal already submitted and
+    read back from Upwork.
+
+    ``outcome`` is None until the freelancer records one, and stays None for
+    a Proposal that was never sent.
+    """
+
+    id: int
+    job_id: str = ""
+    job_title: str = ""
+    content: str = ""
+    tone: str = "professional"
+    created_at: str = ""
+    outcome: str | None = None
+
+    @classmethod
+    def from_db_row(cls, row: Any) -> "Proposal":
+        """Rebuild a Proposal from its stored row.
+
+        Lenient in the same way as :meth:`JobPosting.from_db_row`: only
+        ``id`` is required, because ``MIGRATIONS`` adds columns to databases
+        that already exist. Accepts a mapping or a ``sqlite3.Row``.
+        """
+        row = dict(row)
+        return cls(
+            id=int(row["id"]),
+            job_id=row.get("job_id") or "",
+            job_title=row.get("job_title") or "",
+            content=row.get("content") or "",
+            tone=row.get("tone") or "professional",
+            created_at=row.get("created_at") or "",
+            outcome=row.get("outcome") or None,
+        )
+
+    @property
+    def title(self) -> str:
+        """The Job's title, or a stand-in.
+
+        Every caller defaulted this itself, and two of them disagreed about
+        what the default was.
+        """
+        return self.job_title or "Untitled"
+
+    @property
+    def is_won(self) -> bool:
+        return self.outcome == "won"
+
+
+@dataclass
+class ScoreResult:
+    """The outcome of one attempt to score a Job against the Profile.
+
+    ``score`` is None when the attempt failed and ``error`` says why. A
+    failed attempt is never persisted, so a transient API failure cannot
+    permanently bury a job.
+    """
+
+    job: JobPosting
+    score: int | None = None
+    reasoning: str = ""
+    error: str = ""
+
+
+@dataclass
+class OfferTerms:
+    """What an offer pays: a fixed budget, or an hourly rate and cap.
+
+    Carries the number and its currency rather than a formatted string, so
+    rendering stays with the caller.
+    """
+
+    amount: float | None = None
+    currency: str = "USD"
+    weekly_hours_limit: int | None = None
+    is_fixed: bool = False
+    start_date: str = ""
+    end_date: str = ""
+
+    @classmethod
+    def from_api(cls, terms: dict[str, Any] | None) -> "OfferTerms":
+        terms = terms or {}
+        dates = {
+            "start_date": str(terms.get("expectedStartDate", "") or ""),
+            "end_date": str(terms.get("expectedEndDate", "") or ""),
+        }
+        fixed = terms.get("fixedPriceTerm") or {}
+        budget = fixed.get("budget") or {}
+        if budget.get("amount") not in (None, ""):
+            return cls(
+                amount=_to_float(budget.get("amount"), None),
+                currency=budget.get("currencyCode", "USD"),
+                is_fixed=True,
+                **dates,
+            )
+
+        hourly = terms.get("hourlyTerms") or {}
+        rate = hourly.get("rate") or {}
+        if rate.get("amount") not in (None, ""):
+            limit = hourly.get("weeklyHoursLimit")
+            return cls(
+                amount=_to_float(rate.get("amount"), None),
+                currency=rate.get("currencyCode", "USD"),
+                weekly_hours_limit=int(limit) if str(limit).isdigit() else None,
+                **dates,
+            )
+        return cls(**dates)
+
+
+@dataclass
+class Offer:
+    """A contract offer extended by a client, owned by Upwork."""
+
+    id: str
+    title: str = ""
+    state: str = ""
+    kind: str = ""
+    client_name: str = ""
+    job_title: str = ""
+    updated_at: str = ""
+    application_id: str = ""
+    application_status: str = ""
+    description: str = ""
+    message_to_contractor: str = ""
+    close_job_on_accept: bool = False
+    terms: OfferTerms = field(default_factory=OfferTerms)
+
+    @classmethod
+    def from_api(cls, data: dict[str, Any]) -> "Offer":
+        data = data or {}
+        # A connection node wraps the offer one level down.
+        inner = data.get("offer") or {}
+        offer_id = str(inner.get("id") or data.get("id", "") or "")
+
+        company = data.get("company") or {}
+        client = data.get("client") or {}
+        proposal = data.get("vendorProposal") or {}
+
+        return cls(
+            id=offer_id,
+            title=str(data.get("title", "") or ""),
+            state=str(data.get("state", "") or ""),
+            kind=str(data.get("type", "") or ""),
+            client_name=str(company.get("name") or client.get("name") or ""),
+            job_title=str((data.get("job") or {}).get("title", "") or ""),
+            updated_at=str(
+                data.get("lastUpdatedDateTime")
+                or data.get("lastPublishedDateTime")
+                or ""
+            ),
+            application_id=str(proposal.get("id", "") or ""),
+            application_status=str(
+                (proposal.get("status") or {}).get("status", "") or ""
+            ),
+            description=str(data.get("description", "") or ""),
+            message_to_contractor=str(data.get("messageToContractor", "") or ""),
+            close_job_on_accept=bool(data.get("closeJobPostingOnAccept", False)),
+            terms=OfferTerms.from_api(data.get("offerTerms")),
+        )
+
+
+@dataclass
+class Application:
+    """A proposal already submitted on Upwork, read back from its API.
+
+    Not to be confused with a locally drafted Proposal, which Upwork's terms
+    forbid submitting through the API.
+    """
+
+    id: str
+    status: str = ""
+    cover_letter: str = ""
+    created_at: str = ""
+    modified_at: str = ""
+    status_changed_at: str = ""
+    job: "JobPosting | None" = None
+
+    @classmethod
+    def from_api(cls, node: dict[str, Any]) -> "Application":
+        node = node or {}
+        audit = node.get("auditDetails") or {}
+        posting = node.get("marketplaceJobPosting")
+        return cls(
+            id=str(node.get("id", "") or ""),
+            status=str((node.get("status") or {}).get("status", "") or ""),
+            cover_letter=str(
+                node.get("proposalCoverLetter") or node.get("coverLetter") or ""
+            ),
+            created_at=str(audit.get("createdDateTime", "") or ""),
+            modified_at=str(audit.get("modifiedDateTime", "") or ""),
+            status_changed_at=str(audit.get("statusChangedDateTime", "") or ""),
+            job=JobPosting.from_graphql(posting) if posting else None,
+        )
+
+    @property
+    def job_title(self) -> str:
+        return self.job.title if self.job else ""
+
+    def sort_key(self, preferred: str = "modified") -> str:
+        """The audit timestamp this listing should be ordered by."""
+        if preferred == "created":
+            return self.created_at
+        if preferred == "status":
+            return self.status_changed_at or self.modified_at
+        return self.modified_at or self.created_at
+
+
+@dataclass
 class Contract:
     id: str
     title: str
     status: str = ""
     created_at: str = ""
     client_name: str = ""
-    hourly_rate: Optional[float] = None
-    total_hours: Optional[float] = None
-    total_charge: Optional[float] = None
+    hourly_rate: float | None = None
+    total_hours: float | None = None
+    total_charge: float | None = None
 
     @classmethod
     def from_api(cls, data: dict[str, Any]) -> "Contract":
@@ -177,19 +454,196 @@ class Contract:
 
 
 @dataclass
+class Milestone:
+    """One funded step of a fixed-price Contract."""
+
+    description: str = "Untitled"
+    amount: float | None = None
+    status: str = ""
+
+    @classmethod
+    def from_api(cls, data: dict[str, Any]) -> "Milestone":
+        return cls(
+            description=data.get("description") or data.get("title") or "Untitled",
+            amount=_to_float(data.get("amount")),
+            status=data.get("status") or data.get("state") or "",
+        )
+
+
+@dataclass
+class ContractDetail:
+    """A Contract together with the Milestones its detail payload carried.
+
+    Milestones get their own pairing rather than a field on ``Contract``
+    because the engagements *list* cannot answer what a Contract's milestones
+    are; an empty list there would be a lie rather than an absence.
+    """
+
+    contract: Contract
+    milestones: list["Milestone"] = field(default_factory=list)
+
+
+@dataclass
+class EarningRow:
+    """One line of an earnings report.
+
+    The API returns rows three ways: a Google-Charts style object with a
+    ``c`` list of ``{"v": value}`` cells, a flat object with named keys, or
+    a bare list of values in column order. ``from_api`` absorbs all three so
+    no caller has to.
+    """
+
+    date: str = ""
+    client: str = ""
+    contract: str = ""
+    amount: float = 0.0
+    kind: str = ""
+
+    #: Column order used by the bare-list and cell-array shapes.
+    COLUMNS = ("Date", "Client", "Contract", "Amount", "Type")
+
+    @classmethod
+    def from_api(cls, row: Any) -> "EarningRow":
+        if isinstance(row, dict):
+            cells = row.get("c")
+            if isinstance(cells, list) and cells:
+                values = [
+                    (c or {}).get("v", "") if isinstance(c, dict) else c for c in cells
+                ]
+                return cls._from_values(values)
+            return cls(
+                date=str(row.get("date", row.get("worked_on", "")) or ""),
+                client=str(row.get("client", row.get("buyer_company_name", "")) or ""),
+                contract=str(
+                    row.get("contract", row.get("engagement_title", "")) or ""
+                ),
+                amount=_to_float(
+                    row.get("amount", row.get("charge_amount", row.get("total_charge")))
+                ),
+                kind=str(row.get("type", row.get("subtype", "")) or ""),
+            )
+        if isinstance(row, list):
+            return cls._from_values(row)
+        return cls()
+
+    @classmethod
+    def _from_values(cls, values: list[Any]) -> "EarningRow":
+        def at(i: int) -> str:
+            return str(values[i]) if i < len(values) else ""
+
+        return cls(
+            date=at(0),
+            client=at(1),
+            contract=at(2),
+            amount=_to_float(values[3] if len(values) > 3 else None),
+            kind=at(4),
+        )
+
+    def as_cells(self) -> list[str]:
+        """The row as display/CSV cells, in ``COLUMNS`` order."""
+        return [
+            self.date,
+            self.client,
+            self.contract,
+            f"{self.amount:.2f}" if self.amount else "",
+            self.kind,
+        ]
+
+
+@dataclass
+class EarningsSummary:
+    """Totals over a set of earning rows."""
+
+    total: float = 0.0
+    this_month: float = 0.0
+    this_week: float = 0.0
+
+
+@dataclass
+class Room:
+    """A message conversation.
+
+    The API returns rooms in several shapes -- keys differ, and single
+    results arrive unwrapped -- so ``from_api`` is where those differences
+    are absorbed rather than at each display site.
+    """
+
+    id: str
+    participants: list[str] = field(default_factory=list)
+    last_message: str = ""
+    updated_at: str = ""
+
+    @classmethod
+    def from_api(cls, data: dict[str, Any]) -> "Room":
+        roster = data.get("roster") or []
+        if isinstance(roster, dict):
+            roster = roster.get("user") or []
+        if isinstance(roster, dict):
+            roster = [roster]
+
+        recent = data.get("recentMessage", data.get("lastMessage")) or {}
+        if isinstance(recent, str):
+            preview = recent
+        else:
+            preview = recent.get("message", recent.get("text", "")) or ""
+
+        return cls(
+            id=str(data.get("roomId", data.get("id", "")) or ""),
+            participants=[
+                u.get("name") or u.get("userId") or "Unknown"
+                for u in roster
+                if isinstance(u, dict)
+            ],
+            last_message=preview,
+            updated_at=str(
+                data.get(
+                    "roomUpdatedDate",
+                    data.get("updatedAt", data.get("updated_at", "")),
+                )
+                or ""
+            ),
+        )
+
+
+@dataclass
 class Message:
     id: str
     room_id: str
-    sender: str = ""
+    sender_id: str = ""
+    sender_name: str = ""
     content: str = ""
     created_at: str = ""
 
+    @property
+    def sender_label(self) -> str:
+        """Best available way to name the sender when displaying the message."""
+        return self.sender_name or self.sender_id or "Unknown"
+
     @classmethod
     def from_api(cls, data: dict[str, Any], room_id: str = "") -> "Message":
+        user = data.get("user") or {}
         return cls(
             id=data.get("id", ""),
             room_id=room_id,
-            sender=data.get("userId", data.get("user", {}).get("name", "")),
+            sender_id=str(data.get("userId") or user.get("id") or ""),
+            sender_name=user.get("name") or "",
             content=data.get("message", data.get("text", "")),
             created_at=data.get("createdAt", data.get("created_at", "")),
         )
+
+
+@dataclass
+class Conversation:
+    """A room's messages together with who is reading them.
+
+    Carrying the viewer alongside the messages means a caller never has to
+    look up its own user id before rendering, and a Message is never asked
+    a question -- "is this mine?" -- that it cannot answer on its own.
+    """
+
+    room_id: str
+    messages: list[Message] = field(default_factory=list)
+    viewer_id: str = ""
+
+    def is_own(self, message: Message) -> bool:
+        return bool(self.viewer_id) and message.sender_id == self.viewer_id

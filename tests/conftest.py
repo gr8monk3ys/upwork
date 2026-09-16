@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 from click.testing import CliRunner
 
+from upwork_cli.models import JobPosting
 
 # ---------------------------------------------------------------------------
 # Filesystem isolation
@@ -28,10 +29,20 @@ def isolated_config(tmp_path, monkeypatch):
         "PROFILE_FILE": cfg / "profile.yaml",
         "SETTINGS_FILE": cfg / "settings.yaml",
         "DB_FILE": cfg / "upwork.db",
+        "STYLE_GUIDE_FILE": cfg / "style_guide.txt",
     }
 
     # Patch in config (canonical) and all known re-importers
-    for mod in ("upwork_cli.config", "upwork_cli.db", "upwork_cli.commands.config"):
+    # Every module that re-imports one of these names binds its own copy, so
+    # each has to be patched. A name missing from this list leaks: a test
+    # writes to the developer's real ~/.config, which is how STYLE_GUIDE_FILE
+    # was caught.
+    for mod in (
+        "upwork_cli.config",
+        "upwork_cli.db",
+        "upwork_cli.commands.config",
+        "upwork_cli.commands.propose",
+    ):
         for name, value in paths.items():
             monkeypatch.setattr(f"{mod}.{name}", value, raising=False)
 
@@ -80,7 +91,7 @@ def cli_runner():
 
 
 def _make_job_dict(**overrides) -> dict:
-    """Return a minimal valid job dict for ``upsert_job``."""
+    """Return a minimal valid job dict (the shape a ``jobs`` row holds)."""
     base = {
         "id": "~01abc123",
         "title": "Python Developer Needed",
@@ -150,16 +161,9 @@ def _make_rest_job(**overrides) -> dict:
     return base
 
 
-def _make_rss_entry(**overrides) -> dict:
-    """Return a minimal RSS entry for ``JobPosting.from_rss``."""
-    base = {
-        "title": "Data Analyst Needed",
-        "link": "https://www.upwork.com/jobs/~01rss789",
-        "summary": "Analyze data.<br><b>Budget</b>: $2,500<br>",
-        "published": "2025-03-01T08:00:00Z",
-    }
-    base.update(overrides)
-    return base
+def _make_job_posting(**overrides) -> JobPosting:
+    """Return a minimal valid ``JobPosting`` for ``upsert_job``."""
+    return JobPosting(**_make_job_dict(**overrides))
 
 
 @pytest.fixture
@@ -175,11 +179,6 @@ def sample_graphql_node():
 @pytest.fixture
 def sample_rest_job():
     return _make_rest_job()
-
-
-@pytest.fixture
-def sample_rss_entry():
-    return _make_rss_entry()
 
 
 # ---------------------------------------------------------------------------
@@ -206,3 +205,50 @@ def mock_anthropic_response(text: str, include_thinking: bool = False) -> MagicM
     response = MagicMock()
     response.content = blocks
     return response
+
+
+@pytest.fixture
+def completer(monkeypatch):
+    """Substitute a FakeCompleter at the AI seam.
+
+    Yields the fake so a test can read what reached the model. Set its
+    responses with ``completer.set(...)`` or build one directly and pass it
+    to :func:`use_completer`.
+    """
+    from tests.fakes import FakeCompleter
+
+    fake = FakeCompleter("")
+    monkeypatch.setattr("upwork_cli.ai.utils.get_completer", lambda _key: fake)
+    return fake
+
+
+@pytest.fixture
+def use_completer(monkeypatch):
+    """Install a specific FakeCompleter at the AI seam."""
+
+    def install(fake):
+        monkeypatch.setattr("upwork_cli.ai.utils.get_completer", lambda _key: fake)
+        return fake
+
+    return install
+
+
+@pytest.fixture(autouse=True)
+def no_credential_probe(monkeypatch):
+    """Keep the credential check off the network by default.
+
+    `diagnostics` asks Upwork whether it still recognises the API key, which
+    is a real HTTP request. No test may depend on upwork.com being
+    reachable, so the probe reports "recognised" unless a test says
+    otherwise. Tests for the probe itself patch `urlopen` directly.
+    """
+    from upwork_cli.client import CREDENTIALS_OK
+
+    for target in (
+        "upwork_cli.diagnostics.check_client_registration",
+        "upwork_cli.commands.config.check_client_registration",
+    ):
+        monkeypatch.setattr(
+            target,
+            lambda client_id, redirect_uri: (CREDENTIALS_OK, "recognised by Upwork"),
+        )

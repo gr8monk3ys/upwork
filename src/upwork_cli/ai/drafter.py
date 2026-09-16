@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 from upwork_cli.ai.utils import complete
 
 VALID_TONES = ("professional", "casual", "technical", "enthusiastic")
@@ -66,18 +64,18 @@ def _build_system_prompt(tone: str, length: str, style_guide: str = "") -> str:
 def draft_proposal(
     job_summary: str,
     profile_summary: str,
-    api_key: str,
+    api_key: str | None = None,
     tone: str = "professional",
     length: str = "medium",
     style_guide: str = "",
-    model: Optional[str] = None,
+    model: str | None = None,
 ) -> str:
     """Generate a tailored Upwork proposal for a specific job.
 
     Args:
         job_summary: Description of the job posting (title, requirements, skills, budget, etc.).
         profile_summary: The freelancer's profile summary (skills, experience, portfolio).
-        api_key: Anthropic API key.
+        api_key: Anthropic API key; resolved from settings when omitted.
         tone: One of "professional", "casual", "technical", "enthusiastic".
         length: One of "short" (~100 words), "medium" (~200 words), "long" (~350 words).
         style_guide: Optional style guide extracted from past winning proposals.
@@ -117,8 +115,8 @@ def draft_proposal(
 def refine_proposal(
     current_draft: str,
     feedback: str,
-    api_key: str,
-    model: Optional[str] = None,
+    api_key: str | None = None,
+    model: str | None = None,
 ) -> str:
     """Refine an existing proposal based on user feedback.
 
@@ -126,7 +124,7 @@ def refine_proposal(
         current_draft: The current proposal text to refine.
         feedback: User instructions on what to change (e.g., "make it shorter",
                   "emphasize Python experience", "add a question about their timeline").
-        api_key: Anthropic API key.
+        api_key: Anthropic API key; resolved from settings when omitted.
         model: Claude model ID; defaults to the configured/default model.
 
     Returns:

@@ -2,10 +2,12 @@
 
 import json
 import sqlite3
+from collections.abc import Generator
 from contextlib import contextmanager
-from typing import Any, Generator, Optional
+from typing import Any
 
 from upwork_cli.config import DB_FILE, ensure_config_dir
+from upwork_cli.models import Bookmark, JobPosting, Proposal
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -16,6 +18,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     budget_amount REAL,
     budget_currency TEXT,
     duration TEXT,
+    duration_label TEXT DEFAULT '',
     engagement TEXT,
     client_country TEXT,
     client_total_spent REAL,
@@ -70,13 +73,12 @@ CREATE TABLE IF NOT EXISTS pipeline_history (
 );
 """
 
-PIPELINE_STAGES = ("found", "drafted", "applied", "interviewing", "won", "lost")
-
 MIGRATIONS = [
     "ALTER TABLE proposals ADD COLUMN outcome TEXT DEFAULT NULL",
     "ALTER TABLE jobs ADD COLUMN category TEXT DEFAULT ''",
     "ALTER TABLE jobs ADD COLUMN subcategory TEXT DEFAULT ''",
     "ALTER TABLE jobs ADD COLUMN client_verified INTEGER DEFAULT 0",
+    "ALTER TABLE jobs ADD COLUMN duration_label TEXT DEFAULT ''",
 ]
 
 
@@ -116,34 +118,21 @@ def init_db() -> None:
         _run_migrations(conn)
 
 
-def upsert_job(job: dict[str, Any]) -> None:
+def upsert_job(job: JobPosting) -> None:
+    """Insert or replace a cached job posting."""
+    data = job.to_db_dict()
+    columns = list(data)
     with get_connection() as conn:
         conn.execute(
-            """INSERT OR REPLACE INTO jobs
-            (id, title, description, skills, budget_amount, budget_currency,
-             duration, engagement, client_country, client_total_spent,
-             client_total_hires, client_feedback, client_verified, created_at,
-             category, subcategory)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                job.get("id", ""),
-                job.get("title", ""),
-                job.get("description", ""),
-                json.dumps(job.get("skills", []))
-                if isinstance(job.get("skills"), list)
-                else job.get("skills", "[]"),
-                job.get("budget_amount"),
-                job.get("budget_currency"),
-                job.get("duration"),
-                job.get("engagement"),
-                job.get("client_country"),
-                job.get("client_total_spent"),
-                job.get("client_total_hires"),
-                job.get("client_feedback"),
-                int(bool(job.get("client_verified"))),
-                job.get("created_at"),
-                job.get("category", ""),
-                job.get("subcategory", ""),
+            f"""INSERT OR REPLACE INTO jobs ({", ".join(columns)})
+            VALUES ({", ".join("?" * len(columns))})""",
+            tuple(
+                json.dumps(data["skills"])
+                if name == "skills"
+                else int(bool(data["client_verified"]))
+                if name == "client_verified"
+                else data[name]
+                for name in columns
             ),
         )
 
@@ -184,22 +173,40 @@ def remove_bookmark(job_id: str) -> None:
         conn.execute("DELETE FROM bookmarks WHERE job_id = ?", (job_id,))
 
 
-def get_bookmarks() -> list[dict[str, Any]]:
+def get_bookmarks() -> list[Bookmark]:
     with get_connection() as conn:
         rows = conn.execute(
             """SELECT b.job_id, b.note, b.bookmarked_at, j.title, j.budget_amount, j.budget_currency
             FROM bookmarks b LEFT JOIN jobs j ON b.job_id = j.id
             ORDER BY b.bookmarked_at DESC"""
         ).fetchall()
-        return [dict(r) for r in rows]
+        return [Bookmark.from_db_row(r) for r in rows]
 
 
-def get_proposals(limit: int = 20) -> list[dict[str, Any]]:
+def get_proposal(proposal_id: int) -> Proposal | None:
+    """Look up a single stored Proposal, or None if there is no such id."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM proposals WHERE id = ?", (proposal_id,)
+        ).fetchone()
+        return Proposal.from_db_row(row) if row else None
+
+
+def get_latest_proposal() -> Proposal | None:
+    """The most recently created Proposal, or None if there are none."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM proposals ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+        return Proposal.from_db_row(row) if row else None
+
+
+def get_proposals(limit: int = 20) -> list[Proposal]:
     with get_connection() as conn:
         rows = conn.execute(
             "SELECT * FROM proposals ORDER BY created_at DESC LIMIT ?", (limit,)
         ).fetchall()
-        return [dict(r) for r in rows]
+        return [Proposal.from_db_row(r) for r in rows]
 
 
 def mark_seen(job_id: str, search_term: str) -> None:
@@ -218,16 +225,30 @@ def is_seen(job_id: str) -> bool:
         return row is not None
 
 
-def get_jobs_with_scores(limit: int = 50) -> list[dict[str, Any]]:
+def get_unscored_jobs(limit: int = 50) -> list[JobPosting]:
+    """Cached jobs that have never been successfully scored, newest first.
+
+    Filtered in SQL rather than in the caller: ranking unscored jobs last and
+    then discarding the scored ones from the first N strands every unscored
+    job beyond the window.
+    """
     with get_connection() as conn:
         rows = conn.execute(
-            """SELECT j.*, s.score, s.reasoning
+            """SELECT j.*
             FROM jobs j LEFT JOIN scores s ON j.id = s.job_id
-            ORDER BY s.score DESC NULLS LAST, j.fetched_at DESC
+            WHERE s.score IS NULL
+            ORDER BY j.fetched_at DESC
             LIMIT ?""",
             (limit,),
         ).fetchall()
-        return [dict(r) for r in rows]
+        return [JobPosting.from_db_row(r) for r in rows]
+
+
+def get_job(job_id: str) -> JobPosting | None:
+    """Look up a single cached job posting, or None if it is not cached."""
+    with get_connection() as conn:
+        row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        return JobPosting.from_db_row(row) if row else None
 
 
 # ---------------------------------------------------------------------------
@@ -273,7 +294,7 @@ def set_pipeline_stage_if_not_exists(job_id: str, stage: str) -> None:
         )
 
 
-def get_pipeline_jobs(stage: Optional[str] = None) -> list[dict[str, Any]]:
+def get_pipeline_jobs(stage: str | None = None) -> list[dict[str, Any]]:
     """Get jobs in the pipeline, optionally filtered by stage."""
     with get_connection() as conn:
         if stage:
@@ -337,7 +358,7 @@ def get_pipeline_stats() -> dict[str, Any]:
         }
 
 
-def get_pipeline_history(job_id: Optional[str] = None) -> list[dict[str, Any]]:
+def get_pipeline_history(job_id: str | None = None) -> list[dict[str, Any]]:
     """Get pipeline transition history, optionally for a specific job."""
     with get_connection() as conn:
         if job_id:
@@ -366,10 +387,10 @@ def mark_proposal_outcome(proposal_id: int, outcome: str) -> None:
         )
 
 
-def get_winning_proposals() -> list[dict[str, Any]]:
-    """Get all proposals marked as 'won'."""
+def get_winning_proposals() -> list[Proposal]:
+    """Every Proposal whose recorded Outcome is ``won``."""
     with get_connection() as conn:
         rows = conn.execute(
             "SELECT * FROM proposals WHERE outcome = 'won' ORDER BY created_at DESC"
         ).fetchall()
-        return [dict(r) for r in rows]
+        return [Proposal.from_db_row(r) for r in rows]

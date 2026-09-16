@@ -2,18 +2,22 @@
 
 import json
 import os
+import re
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import keyring
 import yaml
 
-from upwork_cli.ai.utils import DEFAULT_MODEL
+#: Claude model used when settings do not name one.
+DEFAULT_MODEL = "claude-opus-5"
 
 CONFIG_DIR = Path.home() / ".config" / "upwork-cli"
 AUTH_FILE = CONFIG_DIR / "auth.json"
 PROFILE_FILE = CONFIG_DIR / "profile.yaml"
+STYLE_GUIDE_FILE = CONFIG_DIR / "style_guide.txt"
 SETTINGS_FILE = CONFIG_DIR / "settings.yaml"
 DB_FILE = CONFIG_DIR / "upwork.db"
 
@@ -33,8 +37,14 @@ def _get_secret(key: str) -> str:
     return keyring.get_password(KEYRING_SERVICE, key) or ""
 
 
-def _get_secret_source(key: str) -> str:
-    """Describe where a secret currently resolves from."""
+def secret_source(key: str) -> str:
+    """Describe where a secret currently resolves from.
+
+    Part of the secret store's interface, alongside :func:`set_secret` and
+    :func:`clear_secret`. Reading a secret's *value* is not: that happens
+    through the matching ``Settings`` property, so no caller has to know
+    which of env or keyring answered.
+    """
     env_name = SECRET_ENV_MAP.get(key, "")
     if env_name and os.environ.get(env_name):
         return f"env:{env_name}"
@@ -43,15 +53,20 @@ def _get_secret_source(key: str) -> str:
     return ""
 
 
-def _set_secret(key: str, value: str) -> None:
-    """Store a secret in the system keychain."""
+def set_secret(key: str, value: str) -> None:
+    """Store a secret in the system keychain. An empty value clears it."""
     if value:
         keyring.set_password(KEYRING_SERVICE, key, value)
     else:
-        try:
-            keyring.delete_password(KEYRING_SERVICE, key)
-        except keyring.errors.PasswordDeleteError:
-            pass
+        clear_secret(key)
+
+
+def clear_secret(key: str) -> None:
+    """Remove a secret from the system keychain, if it is there."""
+    try:
+        keyring.delete_password(KEYRING_SERVICE, key)
+    except keyring.errors.PasswordDeleteError:
+        pass
 
 
 def ensure_config_dir() -> Path:
@@ -145,6 +160,188 @@ class Profile:
     def from_dict(cls, data: dict[str, Any]) -> "Profile":
         return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
 
+    @classmethod
+    def from_markdown(cls, text: str) -> "Profile":
+        """Build a Profile from a Markdown file with ## headings.
+
+        Fields absent from the file keep their defaults, so a file holding
+        only a title yields a Profile with only a title set.
+
+        Supported headings (case-insensitive):
+            ## Professional Title
+            ## Professional Overview
+            ## Skills to Add
+            ## Hourly Rate Suggestion
+            ## Portfolio / ## Portfolio Entries
+            ## Employment History / ## Experience (for experience_years)
+        """
+        sections: dict[str, str] = {}
+        current_heading: str | None = None
+        lines_buffer: list[str] = []
+
+        for line in text.splitlines():
+            heading_match = re.match(r"^##\s+(.+)$", line)
+            if heading_match:
+                # Store the previous section
+                if current_heading is not None:
+                    sections[current_heading] = "\n".join(lines_buffer).strip()
+                current_heading = heading_match.group(1).strip().lower()
+                lines_buffer = []
+            else:
+                lines_buffer.append(line)
+
+        # Store the last section
+        if current_heading is not None:
+            sections[current_heading] = "\n".join(lines_buffer).strip()
+
+        profile_data: dict = {}
+
+        # Title — strip markdown bold and surrounding whitespace/rules
+        for key in ("professional title", "title"):
+            if key in sections:
+                title = sections[key].strip()
+                title = re.sub(r"^---+\s*", "", title).strip()
+                title = re.sub(r"\s*---+$", "", title).strip()
+                title = title.strip("*")  # Remove bold markers
+                profile_data["title"] = title
+                break
+
+        # Overview — strip trailing horizontal rules
+        for key in ("professional overview", "overview"):
+            if key in sections:
+                overview = sections[key].strip()
+                overview = re.sub(r"\s*---+\s*$", "", overview).strip()
+                profile_data["overview"] = overview
+                break
+
+        # Skills — expect bullet list or comma-separated
+        for key in ("skills to add", "skills"):
+            if key in sections:
+                raw = sections[key]
+                skills: list[str] = []
+                for sline in raw.splitlines():
+                    sline = sline.strip()
+                    # Skip sub-headings (### Category Name) and horizontal rules
+                    if re.match(r"^#{1,6}\s+", sline) or sline.startswith("---"):
+                        continue
+                    # Strip leading bullet markers
+                    sline = re.sub(r"^[-*]\s*", "", sline)
+                    sline = sline.strip()
+                    if not sline:
+                        continue
+                    # If line contains commas, split on them
+                    if "," in sline:
+                        skills.extend(s.strip() for s in sline.split(",") if s.strip())
+                    else:
+                        skills.append(sline)
+                profile_data["skills"] = skills
+                break
+
+        # Hourly rate — extract the dollar range
+        for key in ("hourly rate suggestion", "hourly rate"):
+            if key in sections:
+                rate_text = sections[key].strip()
+                # Try to extract $XX-$XX/hr pattern
+                rate_match = re.search(r"\$[\d,]+\s*[-–]\s*\$[\d,]+/hr", rate_text)
+                if rate_match:
+                    profile_data["hourly_rate"] = rate_match.group(0)
+                else:
+                    profile_data["hourly_rate"] = re.sub(
+                        r"\s*---+\s*$", "", rate_text
+                    ).strip()
+                break
+
+        # Portfolio
+        for key in ("portfolio entries", "portfolio"):
+            if key in sections:
+                raw = sections[key]
+                portfolio: list[dict[str, str]] = []
+                current_name: str | None = None
+                current_desc_lines: list[str] = []
+
+                for pline in raw.splitlines():
+                    pline_stripped = pline.strip()
+                    # Sub-heading (### or bold **name**)
+                    sub_match = re.match(r"^###\s+(.+)$", pline_stripped) or re.match(
+                        r"^\*\*(.+?)\*\*$", pline_stripped
+                    )
+                    if sub_match:
+                        if current_name is not None:
+                            portfolio.append(
+                                {
+                                    "name": current_name,
+                                    "description": "\n".join(
+                                        current_desc_lines
+                                    ).strip(),
+                                }
+                            )
+                        current_name = sub_match.group(1).strip()
+                        current_desc_lines = []
+                    elif pline_stripped:
+                        cleaned = re.sub(r"^[-*]\s*", "", pline_stripped)
+                        current_desc_lines.append(cleaned)
+
+                if current_name is not None:
+                    portfolio.append(
+                        {
+                            "name": current_name,
+                            "description": "\n".join(current_desc_lines).strip(),
+                        }
+                    )
+
+                if portfolio:
+                    profile_data["portfolio"] = portfolio
+                break
+
+        # Experience years — extract from overview ("X+ years") or employment history date ranges
+        if "experience_years" not in profile_data:
+            overview_text = profile_data.get("overview", "")
+            years_match = re.search(
+                r"(\d+)\+?\s*years?\b", overview_text, re.IGNORECASE
+            )
+            if years_match:
+                profile_data["experience_years"] = int(years_match.group(1))
+            else:
+                # Fall back to employment history / experience sections
+                for key in ("employment history", "experience"):
+                    if key in sections:
+                        # Look for year ranges like "2017 - Present" or "2019 - 2022"
+                        year_ranges = re.findall(
+                            r"(\d{4})\s*[-–]\s*(Present|\d{4})", sections[key]
+                        )
+                        if year_ranges:
+                            current_year = datetime.now(timezone.utc).year
+                            total = 0
+                            for start, end in year_ranges:
+                                end_year = (
+                                    current_year if end == "Present" else int(end)
+                                )
+                                total = max(total, end_year - int(start))
+                            if total > 0:
+                                profile_data["experience_years"] = total
+                        break
+
+        return cls(**profile_data)
+
+    @property
+    def is_empty(self) -> bool:
+        """True when no field has been filled in at all.
+
+        Distinct from "not usable for scoring", which asks only about title
+        and skills: a Profile carrying just an overview is thin but is still
+        something the user wrote, so importing one is not an error.
+        """
+        return not any(
+            (
+                self.title,
+                self.overview,
+                self.skills,
+                self.portfolio,
+                self.hourly_rate,
+                self.experience_years,
+            )
+        )
+
     def summary(self) -> str:
         parts = []
         if self.title:
@@ -163,14 +360,84 @@ class Profile:
             parts.append("Portfolio:\n" + "\n".join(items))
         return "\n".join(parts)
 
+    def audit_summary(self) -> str:
+        """How a Profile reads to the auditor.
+
+        Distinct from :meth:`summary`, which is what a Proposal is written
+        *from* and so omits whatever is absent. An audit grades completeness,
+        so absence is the subject: missing fields are named rather than
+        skipped, and lengths are given because the auditor scores on them.
+        """
+        parts = []
+        parts.append(
+            f"Title ({len(self.title)} chars): {self.title}"
+            if self.title
+            else "Title: NOT SET"
+        )
+        parts.append(
+            f"Overview ({len(self.overview)} chars): {self.overview}"
+            if self.overview
+            else "Overview: NOT SET"
+        )
+        parts.append(
+            f"Skills ({len(self.skills)} listed): {', '.join(self.skills)}"
+            if self.skills
+            else "Skills: NONE"
+        )
+        if self.portfolio:
+            parts.append(f"Portfolio ({len(self.portfolio)} items):")
+            parts.extend(
+                f"  - {p.get('name', 'Untitled')}: {p.get('description', '')[:100]}"
+                for p in self.portfolio
+            )
+        else:
+            parts.append("Portfolio: NONE")
+        parts.append(
+            f"Hourly Rate: {self.hourly_rate}"
+            if self.hourly_rate
+            else "Hourly Rate: NOT SET"
+        )
+        parts.append(f"Experience Years: {self.experience_years or 'NOT SET'}")
+        return "\n".join(parts)
+
+
+def load_style_guide() -> str:
+    """The learnt style guide, or empty when nothing has been learnt yet."""
+    if not STYLE_GUIDE_FILE.exists():
+        return ""
+    return STYLE_GUIDE_FILE.read_text(encoding="utf-8").strip()
+
+
+def save_style_guide(text: str) -> None:
+    """Store the style guide, creating the config directory if it is absent.
+
+    `propose learn` used to write straight to the path. On a fresh install
+    -- no config directory yet -- that raised FileNotFoundError rather than
+    saving anything.
+    """
+    ensure_config_dir()
+    STYLE_GUIDE_FILE.write_text(text, encoding="utf-8")
+
+
+def _write_private(path: Path, text: str) -> None:
+    """Write a file only its owner can read, without a window where it is not.
+
+    ``write_text`` then ``chmod`` leaves the file world-readable for however
+    long the two calls take -- brief, but this holds an OAuth token. Opening
+    with the mode set means the permissions are never wrong.
+    """
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(text)
+    path.chmod(0o600)  # in case the file already existed with wider bits
+
 
 def save_auth(token: AuthToken) -> None:
     ensure_config_dir()
-    AUTH_FILE.write_text(json.dumps(token.to_dict(), indent=2))
-    AUTH_FILE.chmod(0o600)
+    _write_private(AUTH_FILE, json.dumps(token.to_dict(), indent=2))
 
 
-def load_auth() -> Optional[AuthToken]:
+def load_auth() -> AuthToken | None:
     if not AUTH_FILE.exists():
         return None
     try:
@@ -182,20 +449,21 @@ def load_auth() -> Optional[AuthToken]:
 
 def save_settings(
     settings: Settings,
-    client_secret: Optional[str] = None,
-    anthropic_api_key: Optional[str] = None,
-    discord_webhook_url: Optional[str] = None,
+    client_secret: str | None = None,
+    anthropic_api_key: str | None = None,
+    discord_webhook_url: str | None = None,
 ) -> None:
     """Save settings to YAML and secrets to keyring."""
     ensure_config_dir()
-    SETTINGS_FILE.write_text(yaml.dump(settings.to_dict(), default_flow_style=False))
-    SETTINGS_FILE.chmod(0o600)
+    _write_private(
+        SETTINGS_FILE, yaml.dump(settings.to_dict(), default_flow_style=False)
+    )
     if client_secret is not None:
-        _set_secret("client_secret", client_secret)
+        set_secret("client_secret", client_secret)
     if anthropic_api_key is not None:
-        _set_secret("anthropic_api_key", anthropic_api_key)
+        set_secret("anthropic_api_key", anthropic_api_key)
     if discord_webhook_url is not None:
-        _set_secret("discord_webhook_url", discord_webhook_url)
+        set_secret("discord_webhook_url", discord_webhook_url)
 
 
 def load_settings() -> Settings:
@@ -210,15 +478,15 @@ def load_settings() -> Settings:
     migrated = False
     for secret_key in ("client_secret", "anthropic_api_key", "discord_webhook_url"):
         if data.get(secret_key) and data[secret_key] not in ("", "''"):
-            _set_secret(secret_key, data[secret_key])
+            set_secret(secret_key, data[secret_key])
             del data[secret_key]
             migrated = True
 
     settings = Settings.from_dict(data)
 
     if migrated:
-        SETTINGS_FILE.write_text(
-            yaml.dump(settings.to_dict(), default_flow_style=False)
+        _write_private(
+            SETTINGS_FILE, yaml.dump(settings.to_dict(), default_flow_style=False)
         )
         SETTINGS_FILE.chmod(0o600)
 

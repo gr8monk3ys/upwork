@@ -27,20 +27,30 @@ class TestJobFromDescription:
         job = _job_from_description(
             "# Senior Python Dev\n\nBuild an API.", title=None, job_id=None
         )
-        assert job["title"] == "Senior Python Dev"
-        assert job["id"].startswith("manual-")
+        assert job.title == "Senior Python Dev"
+        assert job.id.startswith("manual-")
         with get_connection() as conn:
-            row = conn.execute(
-                "SELECT * FROM jobs WHERE id = ?", (job["id"],)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job.id,)).fetchone()
         assert row is not None
         assert "Build an API." in row["description"]
+
+    def test_caching_puts_the_job_at_the_start_of_the_pipeline(self, isolated_config):
+        """The API-free path used to skip the Pipeline entirely.
+
+        It cached the row by hand instead of going through ``jobs.cache``, so
+        a Job drafted from a file never appeared at ``found`` -- even though
+        ``propose generate`` moves it to ``drafted`` moments later.
+        """
+        init_db()
+        job = _job_from_description("Build an API.", title="API work", job_id=None)
+        stages = {r["job_id"]: r["stage"] for r in get_pipeline_jobs()}
+        assert stages[job.id] == "found"
 
     def test_explicit_title_and_id(self, isolated_config):
         init_db()
         job = _job_from_description("text body", title="My Job", job_id="custom-1")
-        assert job["title"] == "My Job"
-        assert job["id"] == "custom-1"
+        assert job.title == "My Job"
+        assert job.id == "custom-1"
 
     def test_empty_text_raises(self, isolated_config):
         init_db()
@@ -51,7 +61,7 @@ class TestJobFromDescription:
         init_db()
         a = _job_from_description("identical posting", title=None, job_id=None)
         b = _job_from_description("identical posting", title=None, job_id=None)
-        assert a["id"] == b["id"]
+        assert a.id == b.id
 
 
 class TestGenerateFromFile:
@@ -140,3 +150,58 @@ class TestOpenInEditor:
 
         assert captured["cmd"][:2] == ["code", "-w"]
         assert captured["cmd"][2].endswith(".md")
+
+
+class TestHistoryOutcomes:
+    """`propose history` showed no Outcome at all, so a won proposal and an
+    unanswered one looked identical in the only listing of them."""
+
+    def _seed(self, outcome=None):
+        from upwork_cli import proposals as proposals_api
+
+        init_db()
+        stored = proposals_api.record("~job", "Build an API", "Body", "professional")
+        if outcome:
+            proposals_api.mark(stored.id, outcome)
+        return stored
+
+    def test_an_unrecorded_outcome_shows_a_dash_not_a_loss(
+        self, runner, isolated_config
+    ):
+        self._seed()
+        result = runner.invoke(cli, ["propose", "history"])
+        assert result.exit_code == 0
+        assert "Outcome" in result.output
+
+    def test_a_won_proposal_says_won(self, runner, isolated_config):
+        self._seed("won")
+        result = runner.invoke(cli, ["propose", "history"])
+        assert "won" in result.output
+
+    def test_a_lost_proposal_says_lost(self, runner, isolated_config):
+        self._seed("lost")
+        result = runner.invoke(cli, ["propose", "history"])
+        assert "lost" in result.output
+
+
+class TestBookmarkRemoval:
+    """`jobs save` had no counterpart: a bookmark could never be removed."""
+
+    def test_unsave_removes_the_bookmark(self, runner, isolated_config):
+        from upwork_cli.db import get_bookmarks, save_bookmark, upsert_job
+        from upwork_cli.models import JobPosting
+
+        init_db()
+        upsert_job(JobPosting(id="~job", title="Build an API"))
+        save_bookmark("~job", "looks good")
+        assert len(get_bookmarks()) == 1
+
+        result = runner.invoke(cli, ["jobs", "unsave", "~job"])
+        assert result.exit_code == 0
+        assert get_bookmarks() == []
+
+    def test_unsaving_something_unbookmarked_fails(self, runner, isolated_config):
+        init_db()
+        result = runner.invoke(cli, ["jobs", "unsave", "~never"])
+        assert result.exit_code == 1
+        assert "not bookmarked" in result.output
